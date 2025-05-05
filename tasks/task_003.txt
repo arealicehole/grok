@@ -230,7 +230,7 @@ def load_profiles(self):
 ```
 </info added on 2025-05-05T02:13:09.598Z>
 
-## 3. Build profile creation and editing form [in-progress]
+## 3. Build profile creation and editing form [done]
 ### Dependencies: 3.2
 ### Description: Implement the UI for creating new profiles and editing existing ones
 ### Details:

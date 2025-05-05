@@ -29,6 +29,7 @@ class GrokApp(ctk.CTk):
         # Profile selection state
         self.profile_radio_var = ctk.StringVar(value="") # Holds the ID of the selected profile
         self.profile_buttons = {} # Dictionary to potentially hold radiobutton widgets by ID
+        self.edit_profile_button = None # Placeholder for the edit button widget
 
         # Configure window
         self.title("Grok - AI Transcript Analysis")
@@ -59,6 +60,7 @@ class GrokApp(ctk.CTk):
         self.profile_frame.grid_columnconfigure(0, weight=1) # Make content fill width
         self.profile_frame.grid_rowconfigure(0, weight=0) # Label row
         self.profile_frame.grid_rowconfigure(1, weight=1) # Scrollable frame row expands
+        self.profile_frame.grid_rowconfigure(2, weight=0) # Button frame row fixed size
 
         # Profile section label
         self.profile_label = ctk.CTkLabel(self.profile_frame, text="Analysis Profiles", font=ctk.CTkFont(size=16, weight="bold"))
@@ -67,6 +69,9 @@ class GrokApp(ctk.CTk):
         # Scrollable frame for profile list
         self.profile_scrollable_frame = ctk.CTkScrollableFrame(self.profile_frame)
         self.profile_scrollable_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+
+        # --- Setup Profile Control Buttons ---
+        self._setup_profile_controls()
 
         # --- Bottom Bar (Row 2) ---
         # Frame to hold the button and label in row 2, spanning both columns
@@ -83,6 +88,9 @@ class GrokApp(ctk.CTk):
 
         # Load profiles into the UI
         self._load_profiles()
+
+        # Initial check for edit button state based on default selection
+        self._update_edit_button_state() 
 
         # Start the auto-save loop (Needs adjustment)
         self.after(AUTO_SAVE_INTERVAL_MS, self._auto_save)
@@ -114,6 +122,9 @@ class GrokApp(ctk.CTk):
     # --- Profile Management Methods ---
     def _load_profiles(self):
         """Fetches profiles and populates the profile selection list."""
+        # Store the currently selected ID to try and restore it later
+        current_selection = self.profile_radio_var.get()
+        
         # Clear existing widgets from the scrollable frame
         for widget in self.profile_scrollable_frame.winfo_children():
             widget.destroy()
@@ -160,20 +171,84 @@ class GrokApp(ctk.CTk):
                 if default_profile_id_str is None:
                     default_profile_id_str = profile_id_str
 
-            # Set the default selection if one was found
-            if default_profile_id_str:
+            # Set the default selection if one was found and nothing was previously selected
+            if default_profile_id_str and not current_selection:
                 self.profile_radio_var.set(default_profile_id_str)
-                # Trigger the selection logic initially if needed (or call after mainloop starts)
-                # self._on_profile_selected() 
+            elif current_selection in self.profile_buttons: # Try to restore previous selection
+                 self.profile_radio_var.set(current_selection)
+            else: # If previous selection is gone or no default, clear selection
+                 self.profile_radio_var.set("") 
+
+            # Update button state after loading/setting selection
+            self._update_edit_button_state()
 
     def _on_profile_selected(self):
         """Callback function when a profile radio button is selected."""
         selected_id = self.profile_radio_var.get()
         print(f"Selected Profile ID: {selected_id}")
+        # Enable/disable Edit button based on selection
+        self._update_edit_button_state()
         # Add logic here later: 
         # - Load selected profile details? 
         # - Update other UI elements?
         # - Store the selection?
+
+    def _update_edit_button_state(self):
+        """Enables or disables the Edit Profile button based on selection."""
+        if self.edit_profile_button:
+            if self.profile_radio_var.get(): # Check if a profile is selected
+                 self.edit_profile_button.configure(state="normal")
+            else:
+                 self.edit_profile_button.configure(state="disabled")
+
+    def _setup_profile_controls(self):
+        """Creates the Create and Edit profile buttons."""
+        # Button Frame below the scrollable list
+        button_frame = ctk.CTkFrame(self.profile_frame)
+        button_frame.grid(row=2, column=0, padx=10, pady=(5, 10), sticky="ew")
+        button_frame.grid_columnconfigure(0, weight=1) # Allow buttons to align using pack or grid positioning
+
+        # Create New Profile button
+        create_btn = ctk.CTkButton(
+            button_frame, 
+            text="Create Profile",
+            command=self._open_profile_editor # Command to open editor in create mode
+        )
+        create_btn.pack(side="left", padx=(0, 5)) # Pack left
+
+        # Edit Profile button
+        self.edit_profile_button = ctk.CTkButton(
+            button_frame, 
+            text="Edit Profile",
+            command=self._edit_selected_profile, # Command to open editor in edit mode
+            state="disabled"  # Start disabled
+        )
+        self.edit_profile_button.pack(side="left", padx=(5, 0)) # Pack next to create
+
+    def _open_profile_editor(self):
+        """Opens the ProfileEditorWindow to create a new profile."""
+        if not self.profile_repo:
+            CTkMessagebox(title="Error", message="Profile repository is not available.", icon="cancel")
+            return
+            
+        # Pass the repository and the callback to refresh the list on save
+        editor = ProfileEditorWindow(self, repository=self.profile_repo, on_save_callback=self._load_profiles)
+        # editor.grab_set() # grab_set is called inside ProfileEditorWindow init
+
+    def _edit_selected_profile(self):
+        """Opens the ProfileEditorWindow to edit the currently selected profile."""
+        selected_id = self.profile_radio_var.get()
+        if not selected_id:
+            CTkMessagebox(title="Info", message="No profile selected to edit.", icon="info")
+            return
+
+        if not self.profile_repo:
+            CTkMessagebox(title="Error", message="Profile repository is not available.", icon="cancel")
+            return
+        
+        # Pass the repository, selected profile ID, and the callback
+        editor = ProfileEditorWindow(self, repository=self.profile_repo, profile_id=selected_id, on_save_callback=self._load_profiles)
+        # editor.grab_set() # grab_set is called inside ProfileEditorWindow init
 
 if __name__ == "__main__":
     app = GrokApp()
