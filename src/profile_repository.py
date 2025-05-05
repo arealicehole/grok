@@ -32,38 +32,8 @@ from .validation import (
 )
 # -----------------------------
 
-# Assuming AnalysisProfile is defined here or importable
-# from .analysis_profile import AnalysisProfile 
-# Placeholder until AnalysisProfile is properly located/defined
-class AnalysisProfile:
-    def __init__(self, id=None, name=None, instructions=None, schema_definition=None, created_at=None, updated_at=None):
-        self.id = id or str(uuid.uuid4())
-        self.name = name
-        self.instructions = instructions
-        self.schema_definition = schema_definition or {}
-        self.created_at = created_at or datetime.now(timezone.utc)
-        self.updated_at = updated_at or self.created_at
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'id': str(self.id),
-            'name': self.name,
-            'instructions': self.instructions,
-            'schema_definition': self.schema_definition,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AnalysisProfile':
-        return cls(
-            id=data.get('id'),
-            name=data.get('name'),
-            instructions=data.get('instructions'),
-            schema_definition=data.get('schema_definition'),
-            created_at=datetime.fromisoformat(data['created_at']) if data.get('created_at') else None,
-            updated_at=datetime.fromisoformat(data['updated_at']) if data.get('updated_at') else None,
-        )
+# Import the actual AnalysisProfile model
+from .models.analysis_profile import AnalysisProfile
 
 # --- Helper Decorator for Error Handling ---
 def handle_db_errors(operation_name: str):
