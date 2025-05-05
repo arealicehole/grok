@@ -1,5 +1,32 @@
 ---
-description:
-globs:
+description: 
+globs: *.json
 alwaysApply: false
 ---
+- **Problem:** Task Master MCP tools (like `get_task`, `set_task_status`, etc.) can fail on Windows systems if the `projectRoot` parameter is provided using URI encoding (e.g., `/c%3A/Users/...`) instead of the standard Windows path format.
+
+- **Solution:** When running on a Windows OS (`win32`), **always** provide the `projectRoot` parameter to Task Master MCP tools using the standard drive letter format.
+
+- **✅ DO:**
+  ```typescript
+  // Correct format for projectRoot on Windows
+  default_api.mcp_task-master-ai_get_task(
+      projectRoot: "C:/Users/figon/zeebot/grok", 
+      id: "2.3",
+      file: "tasks/tasks.json" 
+  )
+  ```
+
+- **❌ DON'T:**
+  ```typescript
+  // Incorrect URI-encoded format that causes issues on Windows
+  default_api.mcp_task-master-ai_get_task(
+      projectRoot: "/c%3A/Users/figon/zeebot/grok", // This may fail
+      id: "2.3",
+      file: "tasks/tasks.json" 
+  )
+  ```
+
+- **Context:** This rule is crucial for ensuring reliable interaction with Task Master tools when the development environment is Windows. The `projectRoot` path needs to be recognizable by the underlying system functions accessed by the tools.
+
+- **Reference:** See [`taskmaster.mdc`](mdc:.cursor/rules/taskmaster.mdc) for general Task Master tool usage.
