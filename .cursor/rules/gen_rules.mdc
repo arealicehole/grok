@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+keep all files to under 500 lines of code and develop thing modualarly . reccommend refactoring when needed
