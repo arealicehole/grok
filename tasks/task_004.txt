@@ -1,0 +1,18 @@
+# Task ID: 4
+# Title: Develop core analysis logic for single profile
+# Status: pending
+# Dependencies: 1, 2, 3
+# Priority: high
+# Description: Implement the backend logic to process a transcript using a single selected Analysis Profile via the Xai Grok API.
+# Details:
+1. Create an AnalysisJob model to track processing state
+2. Implement function to format transcript and profile instructions for API call
+3. Develop core analysis method that uses XaiGrokConnector to send request
+4. Add logic to parse and validate the JSON response
+5. Create AnalysisResult model to store output
+6. Implement error handling for failed analyses
+7. Add logging for analysis steps
+8. Create utility functions for handling common analysis tasks
+
+# Test Strategy:
+Test with sample transcripts and profiles, verify correct API call formatting, validate response handling, check error scenarios, and ensure proper result storage.

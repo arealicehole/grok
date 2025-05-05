@@ -1,0 +1,18 @@
+# Task ID: 8
+# Title: Add temporary prompt processing
+# Status: pending
+# Dependencies: 4, 5
+# Priority: low
+# Description: Implement the ability to run analysis using a one-time temporary prompt instead of a saved profile.
+# Details:
+1. Add text input area for temporary prompt in the UI
+2. Implement logic to detect whether to use temporary prompt or saved profiles
+3. Update analysis logic to handle temporary prompts
+4. Modify output display to show results from temporary prompt analysis
+5. Add appropriate labeling for temporary prompt results
+6. Implement option to save temporary prompt as a profile
+7. Ensure proper error handling for temporary prompt processing
+8. Add validation for temporary prompt input
+
+# Test Strategy:
+Test analysis with temporary prompts, verify correct output display, check save-as-profile functionality, validate error handling, and test the interaction between temporary prompts and saved profiles.

@@ -1,0 +1,18 @@
+# Task ID: 6
+# Title: Add multi-profile processing and tabbed output
+# Status: pending
+# Dependencies: 4, 5
+# Priority: medium
+# Description: Enhance the application to support selecting and processing multiple Analysis Profiles sequentially, with results displayed in tabs.
+# Details:
+1. Update profile selection UI to use checkboxes for multiple selection
+2. Implement sequential processing logic for multiple profiles
+3. Create tabbed interface for output display
+4. Add logic to generate one tab per processed profile
+5. Implement tab navigation and management
+6. Update JSON and Chat views to work within tabs
+7. Add progress indicators for multi-profile processing
+8. Ensure proper error handling for individual profile failures
+
+# Test Strategy:
+Test selection and processing of multiple profiles, verify correct tab creation and content, check sequential processing order, validate tab navigation, and test error handling for individual profile failures.

@@ -1,11 +1,12 @@
 import customtkinter as ctk
-import os # Potentially useful later, added now
-import tkinter as tk
-from typing import List, Optional # Add typing for clarity
+from CTkMessagebox import CTkMessagebox  # Ensure this is installed or handled
+import os
 
-# Assume profile_repository exists and has the expected classes/functions
-# We might need to adjust imports based on actual file structure/exports
-from .profile_repository import ProfileRepository, AnalysisProfile, ProfileNotFoundError # Assuming ProfileNotFoundError for error handling
+# Use relative imports since main_app is inside the src package
+from .components.transcript_input import TranscriptInput
+from .profile_repository import ProfileRepository
+from .models.analysis_profile import AnalysisProfile
+from .components.profile_editor import ProfileEditorWindow
 
 # --- Constants ---
 AUTO_SAVE_INTERVAL_MS = 5000 # 5 seconds
@@ -16,12 +17,10 @@ class GrokApp(ctk.CTk):
         super().__init__()
         
         # Instantiate Profile Repository
-        # This might need configuration passed in eventually
         try:
             self.profile_repo = ProfileRepository()
         except Exception as e:
             print(f"Error initializing ProfileRepository: {e}")
-            # Handle initialization error gracefully (e.g., disable profile features)
             self.profile_repo = None 
         
         # Auto-save state
@@ -30,14 +29,6 @@ class GrokApp(ctk.CTk):
         # Profile selection state
         self.profile_radio_var = ctk.StringVar(value="") # Holds the ID of the selected profile
         self.profile_buttons = {} # Dictionary to potentially hold radiobutton widgets by ID
-
-        # Placeholder text and color
-        self.placeholder_text = "Paste your transcript here..."
-        # Define a placeholder color (adjust as needed for theme)
-        # Using a named color that works in both light/dark modes might be tricky
-        # Let's use a specific hex for light/dark or derive from theme later if needed
-        self.placeholder_color = "gray60" # A medium gray often visible in both modes
-        self.default_text_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["text_color"])
 
         # Configure window
         self.title("Grok - AI Transcript Analysis")
@@ -57,28 +48,9 @@ class GrokApp(ctk.CTk):
         # Place header in row 0, spanning both columns. Stick to top-left ('nw')
         self.header_label.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="nw")
 
-        # --- Transcript Input Textbox ---\
-        self.transcript_textbox = ctk.CTkTextbox(self, wrap="word", text_color=self.placeholder_color) # Start with placeholder color
-        # Place textbox in row 1, column 0. Pad x=20, y=10 bottom. Stick to all sides ('nsew') to fill cell
-        self.transcript_textbox.grid(row=1, column=0, padx=20, pady=(0, 5), sticky="nsew") # Reduced bottom padding
-        # Insert initial placeholder text
-        self.transcript_textbox.insert("0.0", self.placeholder_text)
-
-        # Bind focus events for placeholder behavior
-        self.transcript_textbox.bind("<FocusIn>", self._on_textbox_focus_in)
-        self.transcript_textbox.bind("<FocusOut>", self._on_textbox_focus_out)
-        # Bind key release event to update character count
-        self.transcript_textbox.bind("<KeyRelease>", self._on_transcript_change)
-        # Bind Ctrl+A for Select All
-        self.transcript_textbox.bind("<Control-a>", self._select_all)
-        self.transcript_textbox.bind("<Control-A>", self._select_all) # Handle capital A too
-        # Bind Ctrl+C/V/X for Copy/Paste/Cut
-        self.transcript_textbox.bind("<Control-c>", self._trigger_copy)
-        self.transcript_textbox.bind("<Control-C>", self._trigger_copy)
-        self.transcript_textbox.bind("<Control-v>", self._trigger_paste)
-        self.transcript_textbox.bind("<Control-V>", self._trigger_paste)
-        self.transcript_textbox.bind("<Control-x>", self._trigger_cut)
-        self.transcript_textbox.bind("<Control-X>", self._trigger_cut)
+        # --- Instantiate and Place TranscriptInput Component --- 
+        self.transcript_input_component = TranscriptInput(self)
+        self.transcript_input_component.grid(row=1, column=0, padx=20, pady=(0, 5), sticky="nsew")
 
         # --- Profile Management Frame (Column 1) ---
         self.profile_frame = ctk.CTkFrame(self)
@@ -106,122 +78,38 @@ class GrokApp(ctk.CTk):
         self.bottom_frame.grid_columnconfigure(1, weight=1) # Spacer
         self.bottom_frame.grid_columnconfigure(2, weight=0) # Char count
 
-        # --- Clear Button ---
-        self.clear_button = ctk.CTkButton(self.bottom_frame, text="Clear Transcript", command=self._clear_transcript)
-        self.clear_button.grid(row=0, column=0, sticky="w")
-
-        # --- Character Count Label ---
-        self.char_count_label = ctk.CTkLabel(self.bottom_frame, text="Characters: 0")
-        # Place char count in the bottom frame, column 2. Stick to right ('e')
-        self.char_count_label.grid(row=0, column=2, sticky="e")
-
-        # Initialize character count
-        self._on_transcript_change(None) # Call initially to set count (pass None as event)
+        # Initialize character count (Moved to component)
+        # self._on_transcript_change(None) 
 
         # Load profiles into the UI
         self._load_profiles()
 
-        # Start the auto-save loop
+        # Start the auto-save loop (Needs adjustment)
         self.after(AUTO_SAVE_INTERVAL_MS, self._auto_save)
-
-    def _on_textbox_focus_in(self, event):
-        """Clear placeholder text when textbox gains focus."""
-        current_text = self.transcript_textbox.get("0.0", "end-1c")
-        if current_text == self.placeholder_text:
-            self.transcript_textbox.delete("0.0", "end")
-            # Set text color to default
-            self.transcript_textbox.configure(text_color=self.default_text_color)
-
-    def _on_textbox_focus_out(self, event):
-        """Restore placeholder text if textbox is empty when losing focus."""
-        current_text = self.transcript_textbox.get("0.0", "end-1c")
-        if not current_text:
-            self.transcript_textbox.insert("0.0", self.placeholder_text)
-            # Set text color back to placeholder color
-            self.transcript_textbox.configure(text_color=self.placeholder_color)
-        # Also update count when focus leaves (e.g., if text was deleted)
-        self._on_transcript_change(event)
-
-    def _clear_transcript(self):
-        """Clears the transcript textbox and resets the placeholder."""
-        self.transcript_textbox.delete("0.0", "end")
-        # Reset placeholder manually by calling focus out logic 
-        # (ensures color and text are correct)
-        self._on_textbox_focus_out(None) # Pass None as event
-        # Explicitly update count after clearing
-        self._on_transcript_change(None) 
-
-    def _on_transcript_change(self, event):
-        """Update the character count label whenever the text changes."""
-        current_text = self.transcript_textbox.get("0.0", "end-1c")
-        # Don't count the placeholder text
-        if current_text == self.placeholder_text and self.transcript_textbox.cget("text_color") == self.placeholder_color:
-            char_count = 0
-        else:
-            char_count = len(current_text)
-        
-        self.char_count_label.configure(text=f"Characters: {char_count}")
 
     def _auto_save(self):
         """Periodically saves the transcript text if it has changed."""
         try:
-            current_text = self.transcript_textbox.get("0.0", "end-1c")
-            is_placeholder = (current_text == self.placeholder_text and 
-                              self.transcript_textbox.cget("text_color") == self.placeholder_color)
+            # Access the textbox within the component
+            current_text = self.transcript_input_component.textbox.get("0.0", "end-1c")
+            
+            # Check if the component's placeholder is active (needs method in component)
+            # Simplified check for now: don't save if text is the placeholder string
+            # TODO: Refine this by adding an is_placeholder() method to TranscriptInput
+            is_placeholder = (current_text == "Paste your transcript here...") 
 
             if not is_placeholder and current_text != self.last_saved_text:
                 try:
                     with open(AUTO_SAVE_FILENAME, "w", encoding='utf-8') as f:
                         f.write(current_text)
                     self.last_saved_text = current_text
-                    # Optional: Add a status message or log
                     # print(f"Transcript auto-saved at {datetime.datetime.now()}") 
                 except IOError as e:
                     print(f"Error auto-saving transcript: {e}")
-                    # Consider adding user feedback here (e.g., status bar message)
 
         finally:
             # Always reschedule the next check
             self.after(AUTO_SAVE_INTERVAL_MS, self._auto_save)
-
-    def _select_all(self, event):
-        """Selects all text in the transcript textbox."""
-        # Add the 'sel' tag to the entire text range
-        self.transcript_textbox.tag_add("sel", "1.0", "end")
-        # Return "break" to prevent further event propagation (e.g., default OS behavior)
-        return "break"
-
-    # --- Clipboard Handlers ---
-    def _trigger_copy(self, event):
-        """Triggers the built-in Copy virtual event."""
-        try:
-            self.transcript_textbox.event_generate("<<Copy>>")
-        except tk.TclError:
-            # Handle case where no text is selected (optional)
-            pass 
-        return "break" # Prevent default OS copy behavior interference
-
-    def _trigger_paste(self, event):
-        """Triggers the built-in Paste virtual event."""
-        try:
-            self.transcript_textbox.event_generate("<<Paste>>")
-        except tk.TclError:
-             # Handle potential errors during paste (optional)
-            pass
-        # Update character count after paste
-        self._on_transcript_change(None)
-        return "break" # Prevent default OS paste behavior interference
-
-    def _trigger_cut(self, event):
-        """Triggers the built-in Cut virtual event."""
-        try:
-            self.transcript_textbox.event_generate("<<Cut>>")
-        except tk.TclError:
-            # Handle case where no text is selected (optional)
-            pass
-        # Update character count after cut
-        self._on_transcript_change(None)
-        return "break" # Prevent default OS cut behavior interference
 
     # --- Profile Management Methods ---
     def _load_profiles(self):

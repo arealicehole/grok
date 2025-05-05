@@ -1,0 +1,18 @@
+# Task ID: 7
+# Title: Implement AI schema generation functionality
+# Status: pending
+# Dependencies: 2, 4
+# Priority: medium
+# Description: Add the ability for the AI to generate and store JSON schema definitions based on profile instructions.
+# Details:
+1. Update AnalysisProfile model to store explicit schema definitions
+2. Create 'Generate Schema' button in profile editor
+3. Implement backend logic to call Xai Grok API with meta-prompts for schema generation
+4. Add parsing and validation of generated schema
+5. Update profile storage to save schema definitions
+6. Modify analysis logic to instruct AI to use stored schema
+7. Add schema visualization in profile editor
+8. Implement error handling for schema generation failures
+
+# Test Strategy:
+Test schema generation with various profile instructions, verify schema storage and retrieval, validate schema application during analysis, and check error handling for schema generation failures.

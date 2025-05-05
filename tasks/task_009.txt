@@ -1,0 +1,18 @@
+# Task ID: 9
+# Title: Develop schema editing and reprocessing capabilities
+# Status: pending
+# Dependencies: 7
+# Priority: low
+# Description: Implement functionality to edit schema definitions using natural language prompts and reprocess analysis with updated schemas.
+# Details:
+1. Add 'Edit Schema' input field in profile editor
+2. Implement backend logic to process NLP schema edit requests via Xai Grok
+3. Create 'Regenerate Schema' button and functionality
+4. Update profile storage to save modified schemas
+5. Add 'Reprocess' button to output tabs
+6. Implement logic to re-run analysis with current transcript and updated schema
+7. Add visual indication of schema changes
+8. Ensure proper error handling for schema editing and reprocessing
+
+# Test Strategy:
+Test NLP schema editing with various requests, verify schema updates, check reprocessing functionality, validate output changes after reprocessing, and test error handling for schema editing failures.

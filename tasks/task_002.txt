@@ -1,0 +1,2005 @@
+# Task ID: 2
+# Title: Implement Analysis Profile storage
+# Status: done
+# Dependencies: 1
+# Priority: high
+# Description: Create the data models and storage mechanisms for Analysis Profiles, including name, instructions, and schema definitions.
+# Details:
+1. Define the AnalysisProfile data model (ID, Name, Instructions, SchemaDefinition, timestamps)
+2. Implement storage backend (SQLite database or JSON file-based storage)
+3. Create CRUD operations for profiles (Create, Read, Update, Delete)
+4. Add methods to save and load profiles
+5. Implement basic validation for profile data
+6. Create utility functions for profile management
+7. Add error handling for storage operations
+8. Ensure proper serialization/deserialization of JSON schema definitions
+
+# Test Strategy:
+Test CRUD operations with sample profiles, verify data persistence across application restarts, validate schema storage and retrieval, and check error handling for invalid inputs.
+
+# Subtasks:
+## 1. 1. Define the AnalysisProfile data model (ID, Name, Instructions, SchemaDefinition, timestamps) [done]
+### Dependencies: None
+### Description: Create the core data model class for Analysis Profiles with all required attributes according to the PRD specifications.
+### Details:
+1. Create an AnalysisProfile class with the following attributes:
+   - id: Unique identifier (UUID)
+   - name: String for profile name (required, must be unique)
+   - instructions: Text field for analysis instructions to guide the analysis process
+   - schema_definition: JSON structure defining the analysis schema with input/output fields
+   - created_at: Timestamp for creation date
+   - updated_at: Timestamp for last modification
+2. Implement appropriate getters and setters
+3. Add validation for required fields (name cannot be empty, schema must be valid JSON)
+4. Include proper type annotations for all fields
+5. Implement __str__ and __repr__ methods for debugging
+6. Add methods for schema validation against expected structure
+7. Ensure the model supports versioning for future compatibility
+
+<info added on 2025-05-04T02:36:45.763Z>
+Here's additional information to enhance the subtask:
+
+```python
+# Example implementation of the AnalysisProfile class
+import uuid
+from datetime import datetime
+import json
+from typing import Dict, Any, Optional
+
+class AnalysisProfile:
+    def __init__(
+        self,
+        name: str,
+        instructions: str = "",
+        schema_definition: Dict[str, Any] = None,
+        id: Optional[uuid.UUID] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None
+    ):
+        self.id = id or uuid.uuid4()
+        self.name = name
+        self.instructions = instructions
+        self.schema_definition = schema_definition or {}
+        self.created_at = created_at or datetime.utcnow()
+        self.updated_at = updated_at or self.created_at
+        
+        # Validate on initialization
+        if not self.is_valid():
+            raise ValueError("Invalid AnalysisProfile parameters")
+    
+    def is_valid(self) -> bool:
+        """Validate the profile has required fields and proper structure"""
+        if not self.name or not isinstance(self.name, str):
+            return False
+            
+        # Validate schema structure - check for required components
+        try:
+            if self.schema_definition:
+                # Ensure schema has input and output sections
+                if not all(k in self.schema_definition for k in ['input', 'output']):
+                    return False
+        except Exception:
+            return False
+            
+        return True
+        
+    def update(self, **kwargs) -> None:
+        """Update profile attributes and set updated_at timestamp"""
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        self.updated_at = datetime.utcnow()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert profile to dictionary for serialization"""
+        return {
+            'id': str(self.id),
+            'name': self.name,
+            'instructions': self.instructions,
+            'schema_definition': self.schema_definition,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AnalysisProfile':
+        """Create profile from dictionary representation"""
+        return cls(
+            id=uuid.UUID(data['id']) if isinstance(data.get('id'), str) else data.get('id'),
+            name=data['name'],
+            instructions=data.get('instructions', ''),
+            schema_definition=data.get('schema_definition', {}),
+            created_at=datetime.fromisoformat(data['created_at']) if isinstance(data.get('created_at'), str) else data.get('created_at'),
+            updated_at=datetime.fromisoformat(data['updated_at']) if isinstance(data.get('updated_at'), str) else data.get('updated_at')
+        )
+```
+
+Consider implementing a schema validator method that checks the structure against a predefined JSON schema template. This could validate that input/output fields follow expected patterns and contain required properties like field names, types, and descriptions.
+</info added on 2025-05-04T02:36:45.763Z>
+
+## 2. 2. Implement storage backend (SQLite database or JSON file-based storage) [done]
+### Dependencies: None
+### Description: Create a persistent storage mechanism for Analysis Profiles that ensures data integrity and efficient access.
+### Details:
+1. Evaluate and select the most appropriate storage solution:
+   - SQLite for structured data with transaction support
+   - JSON file storage for simplicity and portability
+2. For SQLite implementation:
+   - Design normalized database schema with profiles table
+   - Create indexes for frequent query patterns (id, name)
+   - Implement connection pooling for performance
+   - Add migration framework for schema evolution
+3. For JSON file storage:
+   - Define consistent file structure with metadata
+   - Implement atomic write operations to prevent corruption
+   - Add file locking mechanism for concurrent access
+   - Create automatic backup system before writes
+4. Implement storage factory pattern to abstract storage details
+5. Add configuration options for storage location
+6. Include performance monitoring for storage operations
+7. Implement storage integrity verification
+
+<info added on 2025-05-04T02:37:10.522Z>
+Here's additional information to enhance the subtask:
+
+```
+8. Error handling and recovery:
+   - Implement robust error handling for storage failures
+   - Create automatic recovery mechanisms for corrupted data
+   - Add logging for all storage operations with appropriate detail levels
+
+9. Data validation layer:
+   - Implement pre-storage validation to ensure data integrity
+   - Add schema versioning to support backward compatibility
+   - Create data sanitization routines to prevent injection attacks
+
+10. Performance optimization:
+    - Implement caching layer for frequently accessed profiles
+    - Add bulk operation support for batch processing
+    - Create query optimization for filtered retrievals
+    - Consider implementing read/write splitting for high-load scenarios
+
+11. For SQLite specifically:
+    - Use WAL (Write-Ahead Logging) journal mode for better concurrency
+    - Implement prepared statements for all queries to prevent SQL injection
+    - Add foreign key constraints if implementing related tables
+    - Configure appropriate busy timeout and retry logic
+
+12. Testing infrastructure:
+    - Create mock storage implementation for unit testing
+    - Implement storage stress tests for concurrent access
+    - Add data corruption tests to verify recovery mechanisms
+```
+</info added on 2025-05-04T02:37:10.522Z>
+
+<info added on 2025-05-04T02:57:55.376Z>
+```
+13. SQLite Implementation Details:
+    - Database file location: Store at `~/.config/analysis_profiles/profiles.db` with configurable override
+    - Schema creation SQL:
+      ```sql
+      CREATE TABLE IF NOT EXISTS profiles (
+          id TEXT PRIMARY KEY,
+          name TEXT UNIQUE NOT NULL,
+          instructions TEXT,
+          schema_definition TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name);
+      CREATE INDEX IF NOT EXISTS idx_profiles_updated_at ON profiles(updated_at);
+      ```
+    - Use SQLite's JSON1 extension for efficient schema_definition storage and querying
+    - Implement connection timeout handling with exponential backoff (max 5 retries)
+
+14. Storage Interface Implementation:
+    - Define `StorageInterface` with methods:
+      ```python
+      class StorageInterface(ABC):
+          @abstractmethod
+          def get_profile(self, id_or_name: str) -> Optional[Profile]: pass
+          
+          @abstractmethod
+          def save_profile(self, profile: Profile) -> bool: pass
+          
+          @abstractmethod
+          def list_profiles(self, filter_criteria: Optional[Dict] = None) -> List[Profile]: pass
+          
+          @abstractmethod
+          def delete_profile(self, id_or_name: str) -> bool: pass
+      ```
+    - Implement transaction management in SQLiteStorage with context managers
+    - Add profile versioning support with optimistic locking to prevent concurrent modification conflicts
+
+15. Migration Strategy:
+    - Use Alembic for schema migrations to support future database changes
+    - Implement data migration utilities for converting between storage backends
+    - Add database integrity check on application startup
+```
+</info added on 2025-05-04T02:57:55.376Z>
+
+## 3. 3. Create CRUD operations for profiles (Create, Read, Update, Delete) [done]
+### Dependencies: None
+### Description: Implement comprehensive database operations for managing Analysis Profiles with proper validation and error handling.
+### Details:
+1. Create a ProfileRepository class with the following methods:\n   - create_profile(profile): Insert a new profile with validation [DONE]\n   - get_profile_by_id(id): Retrieve a profile by its unique ID [DONE]\n   - get_profile_by_name(name): Retrieve a profile by name [DONE]\n   - get_all_profiles(filters=None): Retrieve all profiles with optional filtering [DONE]\n   - update_profile(profile): Update an existing profile [DONE]\n   - delete_profile(id): Remove a profile from storage [DONE]\n2. Implement optimistic locking to prevent concurrent modification issues [Partially Done in update]\n3. Add comprehensive error handling with specific exceptions [DONE]\n4. Include transaction support to ensure data consistency [DONE in create/update/delete]\n5. Implement logging for all operations with appropriate detail levels [DONE]\n6. Add performance metrics collection [TODO]\n7. Ensure thread safety for all operations [TODO - basic check_same_thread=False used]\n8. Implement pagination for retrieving large sets of profiles [DONE in get_all]\n\n<info added on 2025-05-04T02:37:58.801Z>\n... (rest of details) ...\n</info added on 2025-05-05T14:22:31.801Z>
+
+## 4. 4. Add methods to save and load profiles [done]
+### Dependencies: None
+### Description: Create high-level methods for persisting and retrieving Analysis Profiles with robust error handling and validation.
+### Details:
+1. Implement save_profile() method that:
+   - Validates profile data before saving
+   - Handles both creation and updates intelligently
+   - Manages timestamps automatically
+   - Returns the saved profile with updated metadata
+2. Create load_profile() methods with multiple access patterns:
+   - By ID for direct access
+   - By name for user-friendly access
+   - With optional version parameter
+3. Add load_all_profiles() with:
+   - Optional filtering parameters
+   - Sorting capabilities
+   - Pagination support
+4. Implement import/export functionality:
+   - export_profile_to_json() for creating portable backups
+   - import_profile_from_json() with validation
+5. Add profile_exists() checks for both ID and name
+6. Implement batch operations for multiple profiles
+7. Add proper exception handling with meaningful error messages
+8. Ensure atomic operations with rollback capabilities
+
+<info added on 2025-05-04T02:43:17.600Z>
+Here's additional implementation information for the profile management methods:
+
+### Implementation Notes
+
+1. **Error Handling Strategy**:
+   - Implement a custom exception hierarchy (e.g., `ProfileValidationError`, `ProfileStorageError`, `ProfileAccessError`)
+   - Use context managers for database transactions: `with transaction_context(): ...`
+   - Add detailed logging with different severity levels for debugging and auditing
+
+2. **Validation Implementation**:
+   ```python
+   def _validate_profile(profile_data):
+       required_fields = ['name', 'description', 'parameters']
+       for field in required_fields:
+           if field not in profile_data:
+               raise ProfileValidationError(f"Missing required field: {field}")
+       
+       # Validate name format (alphanumeric with underscores)
+       if not re.match(r'^[a-zA-Z0-9_]+$', profile_data['name']):
+           raise ProfileValidationError("Profile name must contain only letters, numbers, and underscores")
+       
+       # Validate parameters structure
+       if not isinstance(profile_data['parameters'], dict):
+           raise ProfileValidationError("Parameters must be a dictionary")
+   ```
+
+3. **Optimistic Locking for Concurrent Updates**:
+   - Add a `version` field to profiles that increments on each update
+   - In update operations, verify the version matches before committing changes
+   - If version mismatch, raise `ConcurrentModificationError`
+
+4. **Caching Strategy**:
+   - Implement LRU cache for frequently accessed profiles
+   - Add cache invalidation on profile updates
+   - Example: `@lru_cache(maxsize=100)` decorator for `load_profile` method
+
+5. **Batch Operations Implementation**:
+   ```python
+   def save_profiles_batch(profiles_data: List[Dict]) -> List[AnalysisProfile]:
+       results = []
+       errors = []
+       
+       with transaction_context():
+           for idx, profile_data in enumerate(profiles_data):
+               try:
+                   profile = save_profile(profile_data)
+                   results.append(profile)
+               except Exception as e:
+                   errors.append({"index": idx, "error": str(e)})
+                   
+       if errors:
+           raise BatchProcessingError(f"Errors in batch processing: {errors}", results=results, errors=errors)
+       
+       return results
+   ```
+
+6. **Import/Export Security Considerations**:
+   - Add digital signature verification for imported profiles
+   - Sanitize JSON input to prevent injection attacks
+   - Include version compatibility checks for imported profiles
+
+7. **Performance Optimization for load_all_profiles**:
+   - Implement lazy loading with generators for large result sets
+   - Add query parameter for selecting specific fields to reduce payload size
+   - Support for cursor-based pagination for efficient traversal of large datasets
+</info added on 2025-05-04T02:43:17.600Z>
+
+## 5. 5. Implement basic validation for profile data [done]
+### Dependencies: None
+### Description: Create comprehensive validation logic to ensure Analysis Profile data integrity and consistency.
+### Details:
+1. Implement field-level validation:
+   - Name: Required, unique, length limits, character restrictions
+   - Instructions: Optional but with size limits
+   - Schema: Valid JSON structure, required fields check
+2. Add structural validation for schema_definition:
+   - Verify required sections (inputs, outputs)
+   - Validate field definitions and types
+   - Check for circular references
+3. Implement business rule validation:
+   - Prevent deletion of profiles in use
+   - Validate relationships between schema elements
+4. Create ValidationResult class to return detailed validation information
+5. Implement pre-save validation hooks
+6. Add sanitization for user-provided inputs
+7. Create validation rule registry for extensibility
+8. Implement custom validators for special field types
+9. Add schema compatibility checking for updates
+
+<info added on 2025-05-04T02:43:54.894Z>
+Here's additional information for the validation subtask:
+
+## Implementation Approach
+
+1. **ValidationResult Structure:**
+   ```python
+   class ValidationResult:
+       def __init__(self):
+           self.is_valid = True
+           self.errors = []
+           self.warnings = []
+       
+       def add_error(self, field, message):
+           self.is_valid = False
+           self.errors.append({"field": field, "message": message})
+       
+       def add_warning(self, field, message):
+           self.warnings.append({"field": field, "message": message})
+           
+       def __bool__(self):
+           return self.is_valid
+   ```
+
+2. **Validation Rule Registry:**
+   ```python
+   class ValidationRuleRegistry:
+       def __init__(self):
+           self.rules = {}
+           
+       def register_rule(self, field_name, validator_func, priority=100):
+           if field_name not in self.rules:
+               self.rules[field_name] = []
+           self.rules[field_name].append((priority, validator_func))
+           self.rules[field_name].sort(key=lambda x: x[0])
+           
+       def get_rules_for_field(self, field_name):
+           return [rule[1] for rule in self.rules.get(field_name, [])]
+   ```
+
+3. **Schema Compatibility Checking:**
+   - Implement version-aware schema validation for updates
+   - Check backward compatibility when updating existing profiles
+   - Example compatibility check:
+   ```python
+   def check_schema_compatibility(old_schema, new_schema):
+       # Check if required inputs in old schema exist in new schema
+       for input_field in old_schema.get("inputs", {}).keys():
+           if input_field not in new_schema.get("inputs", {}):
+               return False, f"Input field '{input_field}' removed in new schema"
+       
+       # Check for type changes in existing fields
+       for field, props in old_schema.get("inputs", {}).items():
+           if field in new_schema.get("inputs", {}) and props.get("type") != new_schema["inputs"][field].get("type"):
+               return False, f"Type changed for input field '{field}'"
+               
+       return True, "Schemas are compatible"
+   ```
+
+4. **Custom Field Validators:**
+   - JSON Schema validator for complex nested structures
+   - Regex-based validators for pattern matching fields
+   - Type-specific validators (email, URL, etc.)
+   - Example custom validator:
+   ```python
+   def validate_json_path(path_string):
+       """Validates that a string is a proper JSONPath expression"""
+       import re
+       # Basic JSONPath validation pattern
+       pattern = r'^\$(\.([\w\*]+|\[\d+\]|\[\'.*?\'\]))*$'
+       return bool(re.match(pattern, path_string))
+   ```
+
+5. **Sanitization Implementation:**
+   ```python
+   def sanitize_profile_input(profile_data):
+       """Sanitize user inputs to prevent XSS and injection attacks"""
+       import html
+       
+       if "name" in profile_data:
+           profile_data["name"] = html.escape(profile_data["name"])
+       
+       if "instructions" in profile_data and profile_data["instructions"]:
+           profile_data["instructions"] = html.escape(profile_data["instructions"])
+           
+       # Handle nested schema sanitization if needed
+       
+       return profile_data
+   ```
+
+6. **Pre-save Validation Hook:**
+   ```python
+   def pre_save_validation_hook(profile_repository, profile_data):
+       """Hook that runs all validations before saving a profile"""
+       result = ValidationResult()
+       
+       # Run field validations
+       field_validators = {
+           "name": [validate_name_required, validate_name_unique, validate_name_length],
+           "schema_definition": [validate_schema_structure, validate_schema_references]
+       }
+       
+       for field, validators in field_validators.items():
+           if field in profile_data:
+               for validator in validators:
+                   validator(profile_data[field], result)
+       
+       # Run business rule validations
+       if not result.is_valid:
+           raise ValidationError(f"Profile validation failed: {result.errors}")
+           
+       return profile_data
+   ```
+</info added on 2025-05-04T02:43:54.894Z>
+
+<info added on 2025-05-04T04:03:46.576Z>
+## Implementation Status and Deferral Notes
+
+### Completed Components
+- **Field Validation Implementation:**
+  ```python
+  def validate_profile_name(name, result):
+      if not name or len(name.strip()) == 0:
+          result.add_error("name", "Profile name is required")
+      elif len(name) > 100:
+          result.add_error("name", "Profile name must be 100 characters or less")
+      elif not re.match(r'^[a-zA-Z0-9_\- ]+$', name):
+          result.add_error("name", "Profile name contains invalid characters")
+  ```
+
+- **Schema Structure Validation:**
+  ```python
+  def validate_schema_structure(schema, result):
+      if not isinstance(schema, dict):
+          result.add_error("schema_definition", "Schema must be a JSON object")
+          return
+          
+      if "inputs" not in schema:
+          result.add_error("schema_definition", "Schema must contain 'inputs' section")
+      elif not isinstance(schema["inputs"], dict):
+          result.add_error("schema_definition", "Schema 'inputs' must be an object")
+          
+      if "outputs" not in schema:
+          result.add_error("schema_definition", "Schema must contain 'outputs' section")
+      elif not isinstance(schema["outputs"], dict):
+          result.add_error("schema_definition", "Schema 'outputs' must be an object")
+  ```
+
+- **Repository Integration:**
+  ```python
+  # In ProfileRepository
+  def create(self, profile_data):
+      result = ValidationResult()
+      self._validate_profile(profile_data, result)
+      
+      if not result.is_valid:
+          raise ValidationError(result.errors)
+          
+      sanitized_data = self._sanitize_input(profile_data)
+      # Continue with profile creation...
+  ```
+
+### Deferral Rationale
+- **Business Rule Validation:** Requires integration with other system components to check profile usage status.
+- **Validation Registry:** Current direct validation approach is sufficient for MVP; registry pattern would add complexity without immediate benefit.
+- **Schema Compatibility:** This functionality is more appropriate for the schema versioning subtask (2.9) as it requires historical schema comparison logic.
+
+### Next Steps
+- Complete remaining validation components in priority order
+- Revisit deferred items when dependent components are implemented
+- Consider adding unit tests specifically for validation edge cases
+</info added on 2025-05-04T04:03:46.576Z>
+
+## 6. 6. Create utility functions for profile management [done]
+### Dependencies: None
+### Description: Develop a comprehensive set of helper functions to simplify common profile operations and enhance usability.
+### Details:
+1. Create profile management utilities:
+   - clone_profile(): Create a copy with new ID and optional name changes
+   - create_template_profile(): Generate starter profiles for common use cases
+   - diff_profiles(): Compare two profiles and identify differences
+   - merge_profiles(): Combine elements from multiple profiles
+2. Implement search capabilities:
+   - search_profiles_by_text(): Full-text search across all text fields
+   - find_profiles_by_schema_element(): Find profiles containing specific schema elements
+3. Add schema manipulation utilities:
+   - extract_schema_section(): Get specific parts of a schema
+   - validate_schema_compatibility(): Check if schemas are compatible
+   - upgrade_schema_version(): Convert between schema versions
+4. Implement profile categorization and tagging
+5. Add profile usage statistics tracking
+6. Create profile dependency analysis tools
+7. Implement profile documentation generation
+8. Add profile visualization helpers
+
+<info added on 2025-05-04T02:44:42.133Z>
+Here's additional implementation information for the utility functions:
+
+```python
+# Implementation details for profile management utilities
+
+def clone_profile(source_id: str, new_name: str = None, modifications: dict = None) -> AnalysisProfile:
+    """
+    Creates a copy of an existing profile with optional modifications.
+    
+    Args:
+        source_id: ID of the profile to clone
+        new_name: Optional new name (defaults to "Copy of [original name]")
+        modifications: Dictionary of attributes to modify in the new profile
+        
+    Returns:
+        The newly created profile
+    """
+    # Implementation example with deep copying to avoid reference issues
+    import copy
+    source = load_profile(source_id)
+    if not source:
+        raise ValueError(f"Source profile with ID {source_id} not found")
+        
+    # Deep copy to avoid reference issues with nested objects
+    new_profile = copy.deepcopy(source)
+    new_profile.id = str(uuid.uuid4())
+    new_profile.name = new_name or f"Copy of {source.name}"
+    new_profile.created_at = datetime.now()
+    new_profile.updated_at = datetime.now()
+    
+    # Apply any modifications
+    if modifications:
+        for key, value in modifications.items():
+            if hasattr(new_profile, key):
+                setattr(new_profile, key, value)
+    
+    # Save and return
+    return save_profile(new_profile)
+
+def create_template_profile(template_type: str, name: str = None) -> AnalysisProfile:
+    """
+    Creates a pre-configured profile based on common use cases.
+    
+    Template types:
+    - "basic": Minimal schema with core fields
+    - "detailed": Comprehensive schema with all standard fields
+    - "security": Schema focused on security analysis
+    - "performance": Schema focused on performance metrics
+    """
+    templates = {
+        "basic": {
+            "schema_definition": {
+                "version": "1.0",
+                "fields": [
+                    {"name": "summary", "type": "text", "required": True},
+                    {"name": "key_findings", "type": "list", "required": True},
+                ]
+            },
+            "instructions": "Provide a basic analysis with summary and key findings."
+        },
+        "detailed": {
+            # More comprehensive schema definition
+        },
+        # Additional templates...
+    }
+    
+    if template_type not in templates:
+        raise ValueError(f"Unknown template type: {template_type}. Available types: {', '.join(templates.keys())}")
+    
+    template = templates[template_type]
+    profile = AnalysisProfile(
+        id=str(uuid.uuid4()),
+        name=name or f"{template_type.capitalize()} Analysis Template",
+        schema_definition=template["schema_definition"],
+        instructions=template["instructions"],
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+    
+    return save_profile(profile)
+
+def diff_profiles(profile_id1: str, profile_id2: str) -> dict:
+    """
+    Compares two profiles and returns their differences.
+    
+    Returns a dictionary with keys for each differing attribute,
+    containing both values in a tuple (profile1_value, profile2_value)
+    """
+    import deepdiff
+    
+    profile1 = load_profile(profile_id1)
+    profile2 = load_profile(profile_id2)
+    
+    # Convert to dictionaries, excluding metadata fields
+    dict1 = {k: v for k, v in profile1.to_dict().items() 
+             if k not in ['id', 'created_at', 'updated_at']}
+    dict2 = {k: v for k, v in profile2.to_dict().items() 
+             if k not in ['id', 'created_at', 'updated_at']}
+    
+    # Use DeepDiff for nested dictionary comparison
+    differences = deepdiff.DeepDiff(dict1, dict2, ignore_order=True)
+    
+    # Format the results for easier consumption
+    formatted_diff = {
+        "schema_differences": [],
+        "instruction_differences": False,
+        "name_different": profile1.name != profile2.name,
+        "summary": f"Found {len(differences)} differences between profiles"
+    }
+    
+    # Process schema differences specifically
+    if 'schema_definition' in differences:
+        # Extract specific schema field differences
+        # Implementation depends on schema structure
+        pass
+        
+    return formatted_diff
+```
+
+For the search capabilities:
+
+```python
+def search_profiles_by_text(query: str, search_fields: List[str] = None) -> List[AnalysisProfile]:
+    """
+    Performs full-text search across profile text fields.
+    
+    Args:
+        query: Text to search for
+        search_fields: List of fields to search (defaults to ['name', 'instructions'])
+        
+    Returns:
+        List of matching profiles
+    """
+    if search_fields is None:
+        search_fields = ['name', 'instructions']
+    
+    # For SQLite implementation using FTS5:
+    conn = get_database_connection()
+    
+    # Build query dynamically based on search_fields
+    field_conditions = " OR ".join([f"{field} LIKE ?" for field in search_fields])
+    params = [f"%{query}%" for _ in search_fields]
+    
+    sql = f"""
+    SELECT * FROM analysis_profiles 
+    WHERE {field_conditions}
+    ORDER BY name
+    """
+    
+    cursor = conn.execute(sql, params)
+    results = [AnalysisProfile.from_dict(dict(row)) for row in cursor.fetchall()]
+    conn.close()
+    
+    return results
+
+def validate_schema_compatibility(schema1: dict, schema2: dict) -> Tuple[bool, List[str]]:
+    """
+    Checks if two schemas are compatible for data exchange or merging.
+    
+    Returns:
+        Tuple containing (is_compatible, list_of_incompatibilities)
+    """
+    incompatibilities = []
+    
+    # Check schema versions
+    if schema1.get("version") != schema2.get("version"):
+        incompatibilities.append(f"Version mismatch: {schema1.get('version')} vs {schema2.get('version')}")
+    
+    # Check required fields
+    schema1_required = {f["name"] for f in schema1.get("fields", []) if f.get("required")}
+    schema2_required = {f["name"] for f in schema2.get("fields", []) if f.get("required")}
+    
+    # Check if schema2 has all required fields from schema1
+    missing_required = schema1_required - {f["name"] for f in schema2.get("fields", [])}
+    if missing_required:
+        incompatibilities.append(f"Missing required fields: {', '.join(missing_required)}")
+    
+    # Check field type compatibility
+    schema1_fields = {f["name"]: f["type"] for f in schema1.get("fields", [])}
+    schema2_fields = {f["name"]: f["type"] for f in schema2.get("fields", [])}
+    
+    for name, type1 in schema1_fields.items():
+        if name in schema2_fields and schema2_fields[name] != type1:
+            incompatibilities.append(f"Field type mismatch for '{name}': {type1} vs {schema2_fields[name]}")
+    
+    return (len(incompatibilities) == 0, incompatibilities)
+```
+</info added on 2025-05-04T02:44:42.133Z>
+
+<info added on 2025-05-04T02:45:27.218Z>
+Here's additional implementation information for profile import/export functionality:
+
+```python
+def export_profile(profile_id: str, include_metadata: bool = True) -> str:
+    """
+    Exports a profile to a JSON string representation.
+    
+    Args:
+        profile_id: ID of the profile to export
+        include_metadata: Whether to include creation/update timestamps
+        
+    Returns:
+        JSON string representation of the profile
+    """
+    profile = load_profile(profile_id)
+    if not profile:
+        raise ValueError(f"Profile with ID {profile_id} not found")
+    
+    # Convert to dictionary
+    profile_dict = profile.to_dict()
+    
+    # Optionally remove metadata
+    if not include_metadata:
+        for field in ['created_at', 'updated_at']:
+            if field in profile_dict:
+                del profile_dict[field]
+    
+    # Convert datetime objects to ISO format strings for JSON serialization
+    for key, value in profile_dict.items():
+        if isinstance(value, datetime):
+            profile_dict[key] = value.isoformat()
+    
+    return json.dumps(profile_dict, indent=2)
+
+def import_profile(profile_json_string: str, 
+                   generate_new_id: bool = True,
+                   handle_name_conflicts: str = 'rename') -> AnalysisProfile:
+    """
+    Imports a profile from a JSON string representation.
+    
+    Args:
+        profile_json_string: JSON string representation of the profile
+        generate_new_id: Whether to generate a new ID (True) or use the one in the JSON (False)
+        handle_name_conflicts: How to handle name conflicts:
+            - 'rename': Automatically rename by adding a suffix
+            - 'error': Raise an error
+            - 'overwrite': Overwrite existing profile with same name
+            
+    Returns:
+        The imported profile
+    """
+    try:
+        profile_dict = json.loads(profile_json_string)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON format: {str(e)}")
+    
+    # Validate required fields
+    required_fields = ['name', 'schema_definition', 'instructions']
+    for field in required_fields:
+        if field not in profile_dict:
+            raise ValueError(f"Missing required field: {field}")
+    
+    # Validate schema structure
+    schema_validator = SchemaValidator()
+    validation_result = schema_validator.validate_schema(profile_dict['schema_definition'])
+    if not validation_result.is_valid:
+        raise ValueError(f"Invalid schema: {validation_result.errors}")
+    
+    # Handle ID generation
+    if generate_new_id or 'id' not in profile_dict:
+        profile_dict['id'] = str(uuid.uuid4())
+    
+    # Handle name conflicts
+    existing_profiles = find_profiles_by_name(profile_dict['name'])
+    if existing_profiles and handle_name_conflicts != 'overwrite':
+        if handle_name_conflicts == 'error':
+            raise ValueError(f"A profile with name '{profile_dict['name']}' already exists")
+        elif handle_name_conflicts == 'rename':
+            # Find a unique name by adding a suffix
+            base_name = profile_dict['name']
+            counter = 1
+            while find_profiles_by_name(f"{base_name} ({counter})"):
+                counter += 1
+            profile_dict['name'] = f"{base_name} ({counter})"
+    
+    # Set timestamps
+    now = datetime.now()
+    profile_dict['created_at'] = now
+    profile_dict['updated_at'] = now
+    
+    # Convert to AnalysisProfile object
+    profile = AnalysisProfile.from_dict(profile_dict)
+    
+    # Save and return
+    return save_profile(profile)
+
+def find_profiles_by_name(name: str) -> List[AnalysisProfile]:
+    """
+    Finds profiles by exact name match.
+    
+    Args:
+        name: Name to search for
+        
+    Returns:
+        List of matching profiles (usually 0 or 1)
+    """
+    conn = get_database_connection()
+    cursor = conn.execute(
+        "SELECT * FROM analysis_profiles WHERE name = ?", 
+        (name,)
+    )
+    results = [AnalysisProfile.from_dict(dict(row)) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+def merge_profiles(profile_ids: List[str], 
+                   new_name: str,
+                   merge_strategy: str = 'union') -> AnalysisProfile:
+    """
+    Combines elements from multiple profiles into a new profile.
+    
+    Args:
+        profile_ids: List of profile IDs to merge
+        new_name: Name for the merged profile
+        merge_strategy: How to handle conflicts:
+            - 'union': Include all fields from all profiles
+            - 'intersection': Include only fields present in all profiles
+            - 'primary': Use first profile as base, add missing fields from others
+            
+    Returns:
+        The newly created merged profile
+    """
+    if len(profile_ids) < 2:
+        raise ValueError("At least two profiles are required for merging")
+    
+    profiles = [load_profile(pid) for pid in profile_ids]
+    if None in profiles:
+        missing = [pid for pid, p in zip(profile_ids, profiles) if p is None]
+        raise ValueError(f"Profiles not found: {', '.join(missing)}")
+    
+    # Create new profile with basic metadata
+    merged_profile = AnalysisProfile(
+        id=str(uuid.uuid4()),
+        name=new_name,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+    
+    # Merge instructions (concatenate with headers)
+    merged_profile.instructions = "\n\n".join([
+        f"--- From profile '{p.name}' ---\n{p.instructions}" 
+        for p in profiles
+    ])
+    
+    # Merge schema definitions based on strategy
+    if merge_strategy == 'primary':
+        merged_profile.schema_definition = copy.deepcopy(profiles[0].schema_definition)
+    else:
+        # Implementation for union/intersection strategies
+        # This would require more complex schema merging logic
+        pass
+    
+    return save_profile(merged_profile)
+```
+</info added on 2025-05-04T02:45:27.218Z>
+
+<info added on 2025-05-04T04:20:50.753Z>
+Here's additional implementation information for the missing items:
+
+```python
+def merge_profiles_with_strategy(profile_ids: List[str], 
+                   new_name: str,
+                   merge_strategy: str = 'union') -> AnalysisProfile:
+    """
+    Enhanced implementation of merge_profiles with complete strategy support.
+    """
+    # ... [existing code from previous implementation] ...
+    
+    # Merge schema definitions based on strategy
+    if merge_strategy == 'primary':
+        merged_profile.schema_definition = copy.deepcopy(profiles[0].schema_definition)
+    elif merge_strategy == 'union':
+        # Combine all fields from all profiles, removing duplicates
+        all_fields = []
+        field_names = set()
+        
+        for profile in profiles:
+            for field in profile.schema_definition.get('fields', []):
+                if field['name'] not in field_names:
+                    all_fields.append(copy.deepcopy(field))
+                    field_names.add(field['name'])
+                    
+        merged_profile.schema_definition = {
+            "version": max(p.schema_definition.get('version', '1.0') for p in profiles),
+            "fields": all_fields
+        }
+    elif merge_strategy == 'intersection':
+        # Only include fields that exist in all profiles
+        # First, collect all field definitions by name
+        field_definitions = {}
+        field_counts = {}
+        
+        for profile in profiles:
+            for field in profile.schema_definition.get('fields', []):
+                name = field['name']
+                if name not in field_definitions:
+                    field_definitions[name] = field
+                    field_counts[name] = 1
+                else:
+                    field_counts[name] += 1
+        
+        # Only keep fields that appear in all profiles
+        common_fields = [
+            copy.deepcopy(field_definitions[name]) 
+            for name, count in field_counts.items() 
+            if count == len(profiles)
+        ]
+        
+        merged_profile.schema_definition = {
+            "version": min(p.schema_definition.get('version', '1.0') for p in profiles),
+            "fields": common_fields
+        }
+    
+    return save_profile(merged_profile)
+
+def upgrade_schema_version(profile_id: str, target_version: str) -> AnalysisProfile:
+    """
+    Upgrades a profile's schema to a newer version.
+    
+    Args:
+        profile_id: ID of the profile to upgrade
+        target_version: Version to upgrade to (e.g., "2.0")
+        
+    Returns:
+        The upgraded profile
+    """
+    profile = load_profile(profile_id)
+    if not profile:
+        raise ValueError(f"Profile with ID {profile_id} not found")
+    
+    current_version = profile.schema_definition.get("version", "1.0")
+    
+    # Skip if already at target version
+    if current_version == target_version:
+        return profile
+    
+    # Define version upgrade paths
+    upgrade_paths = {
+        "1.0-to-2.0": _upgrade_1_0_to_2_0,
+        "2.0-to-3.0": _upgrade_2_0_to_3_0,
+        # Add more upgrade paths as needed
+    }
+    
+    # Determine upgrade path
+    path_key = f"{current_version}-to-{target_version}"
+    if path_key not in upgrade_paths:
+        # Try to find a multi-step path
+        if current_version == "1.0" and target_version == "3.0":
+            # Two-step upgrade: 1.0 -> 2.0 -> 3.0
+            profile = _upgrade_1_0_to_2_0(profile)
+            return _upgrade_2_0_to_3_0(profile)
+        else:
+            raise ValueError(f"No upgrade path from {current_version} to {target_version}")
+    
+    # Execute the upgrade
+    upgraded_profile = upgrade_paths[path_key](profile)
+    upgraded_profile.updated_at = datetime.now()
+    
+    return save_profile(upgraded_profile)
+
+def _upgrade_1_0_to_2_0(profile: AnalysisProfile) -> AnalysisProfile:
+    """
+    Upgrades a profile from schema v1.0 to v2.0.
+    
+    Changes:
+    - Adds 'description' field to each schema field
+    - Converts 'list' type to 'array' with 'items' property
+    - Adds 'metadata' section to schema
+    """
+    schema = copy.deepcopy(profile.schema_definition)
+    schema["version"] = "2.0"
+    
+    # Add metadata section if not present
+    if "metadata" not in schema:
+        schema["metadata"] = {
+            "created_from": "v1.0 upgrade",
+            "upgrade_date": datetime.now().isoformat()
+        }
+    
+    # Update fields
+    for field in schema.get("fields", []):
+        # Add description if missing
+        if "description" not in field:
+            field["description"] = f"Auto-generated description for {field['name']}"
+        
+        # Convert list type to array
+        if field.get("type") == "list":
+            field["type"] = "array"
+            if "items" not in field:
+                field["items"] = {"type": "string"}
+    
+    profile.schema_definition = schema
+    return profile
+
+def _upgrade_2_0_to_3_0(profile: AnalysisProfile) -> AnalysisProfile:
+    """
+    Upgrades a profile from schema v2.0 to v3.0.
+    
+    Changes:
+    - Adds 'validation' property to fields
+    - Restructures schema to use 'properties' instead of 'fields'
+    - Adds 'schema_type' field
+    """
+    old_schema = copy.deepcopy(profile.schema_definition)
+    
+    # Create new schema structure
+    new_schema = {
+        "version": "3.0",
+        "schema_type": "analysis_profile",
+        "properties": {},
+        "required": [],
+        "metadata": old_schema.get("metadata", {})
+    }
+    
+    # Update metadata
+    new_schema["metadata"]["upgraded_from"] = "2.0"
+    new_schema["metadata"]["upgrade_date"] = datetime.now().isoformat()
+    
+    # Convert fields to properties
+    for field in old_schema.get("fields", []):
+        field_name = field["name"]
+        property_def = {
+            "type": field["type"],
+            "description": field.get("description", "")
+        }
+        
+        # Add validation rules
+        if field["type"] == "string" or field["type"] == "text":
+            property_def["validation"] = {
+                "min_length": 0,
+                "max_length": 1000
+            }
+        elif field["type"] == "array":
+            property_def["items"] = field.get("items", {"type": "string"})
+            property_def["validation"] = {
+                "min_items": 0,
+                "max_items": 100
+            }
+        
+        new_schema["properties"][field_name] = property_def
+        
+        # Add to required list if needed
+        if field.get("required", False):
+            new_schema["required"].append(field_name)
+    
+    profile.schema_definition = new_schema
+    return profile
+
+# Implementation for profile categorization and tagging
+def add_tags_to_profile(profile_id: str, tags: List[str]) -> AnalysisProfile:
+    """
+    Adds tags to a profile for categorization and filtering.
+    
+    Args:
+        profile_id: ID of the profile to tag
+        tags: List of tag strings to add
+        
+    Returns:
+        The updated profile
+    """
+    profile = load_profile(profile_id)
+    if not profile:
+        raise ValueError(f"Profile with ID {profile_id} not found")
+    
+    # Initialize tags if not present
+    if not hasattr(profile, 'tags') or profile.tags is None:
+        profile.tags = []
+    
+    # Add new tags (avoid duplicates)
+    for tag in tags:
+        if tag not in profile.tags:
+            profile.tags.append(tag)
+    
+    profile.updated_at = datetime.now()
+    return save_profile(profile)
+
+def get_profiles_by_tag(tag: str) -> List[AnalysisProfile]:
+    """
+    Retrieves all profiles with a specific tag.
+    
+    Args:
+        tag: Tag to search for
+        
+    Returns:
+        List of profiles with the specified tag
+    """
+    conn = get_database_connection()
+    cursor = conn.execute(
+        "SELECT * FROM analysis_profiles WHERE tags LIKE ?", 
+        (f"%{tag}%",)  # Simple implementation; a proper one would use JSON querying
+    )
+    results = [AnalysisProfile.from_dict(dict(row)) for row in cursor.fetchall()]
+    conn.close()
+    
+    # Filter results to ensure exact tag match
+    return [p for p in results if hasattr(p, 'tags') and tag in p.tags]
+
+# Profile usage statistics tracking
+def record_profile_usage(profile_id: str, usage_type: str = 'view') -> None:
+    """
+    Records a usage event for a profile.
+    
+    Args:
+        profile_id: ID of the profile used
+        usage_type: Type of usage ('view', 'edit', 'export', 'analysis')
+    """
+    conn = get_database_connection()
+    conn.execute(
+        "INSERT INTO profile_usage_stats (profile_id, usage_type, timestamp) VALUES (?, ?, ?)",
+        (profile_id, usage_type, datetime.now())
+    )
+    conn.commit()
+    conn.close()
+
+def get_profile_usage_stats(profile_id: str = None, days: int = 30) -> dict:
+    """
+    Retrieves usage statistics for profiles.
+    
+    Args:
+        profile_id: Optional ID to filter for a specific profile
+        days: Number of days to look back
+        
+    Returns:
+        Dictionary with usage statistics
+    """
+    conn = get_database_connection()
+    
+    # Calculate the date threshold
+    threshold_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    if profile_id:
+        # Stats for a specific profile
+        cursor = conn.execute(
+            """
+            SELECT usage_type, COUNT(*) as count 
+            FROM profile_usage_stats 
+            WHERE profile_id = ? AND timestamp >= ?
+            GROUP BY usage_type
+            """,
+            (profile_id, threshold_date)
+        )
+        
+        stats = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Get most active days
+        cursor = conn.execute(
+            """
+            SELECT strftime('%Y-%m-%d', timestamp) as day, COUNT(*) as count
+            FROM profile_usage_stats
+            WHERE profile_id = ? AND timestamp >= ?
+            GROUP BY day
+            ORDER BY count DESC
+            LIMIT 5
+            """,
+            (profile_id, threshold_date)
+        )
+        
+        stats['most_active_days'] = {row[0]: row[1] for row in cursor.fetchall()}
+    else:
+        # Overall stats for all profiles
+        cursor = conn.execute(
+            """
+            SELECT profile_id, COUNT(*) as count
+            FROM profile_usage_stats
+            WHERE timestamp >= ?
+            GROUP BY profile_id
+            ORDER BY count DESC
+            LIMIT 10
+            """,
+            (threshold_date,)
+        )
+        
+        stats = {'most_used_profiles': {}}
+        for row in cursor.fetchall():
+            profile = load_profile(row[0])
+            if profile:
+                stats['most_used_profiles'][profile.name] = row[1]
+    
+    conn.close()
+    return stats
+```
+</info added on 2025-05-04T04:20:50.753Z>
+
+## 7. 7. Add error handling for storage operations [done]
+### Dependencies: None
+### Description: Implement a robust error handling system for all storage-related operations to ensure data integrity and provide clear feedback.
+### Details:
+1. Design a comprehensive exception hierarchy:
+   - ProfileStorageError as base class
+   - ProfileNotFoundError for missing profiles
+   - ProfileValidationError for invalid data
+   - ProfileStorageConnectionError for backend issues
+   - ProfileConcurrencyError for conflict detection
+   - ProfileCorruptionError for data integrity issues
+2. Implement error recovery strategies:
+   - Automatic retries for transient errors
+   - Fallback to backup storage when primary fails
+   - Data recovery from backup files
+3. Add detailed logging for all errors with context information
+4. Create user-friendly error messages with actionable advice
+5. Implement transaction management with rollback capabilities
+6. Add diagnostic tools for storage health checks
+7. Create error aggregation and reporting mechanisms
+8. Implement circuit breaker pattern for unstable storage
+9. Add telemetry for error frequency and patterns
+
+<info added on 2025-05-04T02:47:26.760Z>
+Here's additional implementation information for the error handling system:
+
+## Error Handling Implementation Details
+
+### Exception Handling Patterns
+```python
+def safe_storage_operation(operation_name):
+    """Decorator for wrapping storage operations with standardized error handling"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e):
+                    # Implement exponential backoff retry
+                    for attempt in range(3):
+                        time.sleep(0.5 * (2 ** attempt))
+                        try:
+                            return func(*args, **kwargs)
+                        except Exception:
+                            continue
+                    raise ProfileConcurrencyError(f"Database locked during {operation_name}")
+                elif "no such table" in str(e):
+                    raise ProfileCorruptionError(f"Database schema issue: {e}")
+                else:
+                    raise ProfileStorageConnectionError(f"Database operation failed: {e}")
+            except Exception as e:
+                # Log unexpected errors
+                logging.error(f"Unexpected error in {operation_name}: {e}", exc_info=True)
+                raise
+        return wrapper
+    return decorator
+```
+
+### Circuit Breaker Implementation
+```python
+class StorageCircuitBreaker:
+    def __init__(self, failure_threshold=5, reset_timeout=60):
+        self.failure_count = 0
+        self.failure_threshold = failure_threshold
+        self.reset_timeout = reset_timeout
+        self.last_failure_time = 0
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF-OPEN
+        self.lock = threading.RLock()
+    
+    def execute(self, func, *args, **kwargs):
+        with self.lock:
+            current_time = time.time()
+            if self.state == "OPEN":
+                if current_time - self.last_failure_time > self.reset_timeout:
+                    self.state = "HALF-OPEN"
+                else:
+                    raise ProfileStorageConnectionError("Circuit breaker open - storage system unavailable")
+            
+            try:
+                result = func(*args, **kwargs)
+                if self.state == "HALF-OPEN":
+                    self.state = "CLOSED"
+                    self.failure_count = 0
+                return result
+            except (ProfileStorageConnectionError, ProfileCorruptionError) as e:
+                self.failure_count += 1
+                self.last_failure_time = current_time
+                if self.failure_count >= self.failure_threshold:
+                    self.state = "OPEN"
+                raise
+```
+
+### Error Telemetry System
+```python
+class ErrorTelemetry:
+    def __init__(self):
+        self.error_counts = defaultdict(int)
+        self.error_timestamps = defaultdict(list)
+        self.lock = threading.RLock()
+    
+    def record_error(self, error_type, context=None):
+        with self.lock:
+            self.error_counts[error_type] += 1
+            self.error_timestamps[error_type].append(time.time())
+            # Trim old timestamps (keep last 100)
+            if len(self.error_timestamps[error_type]) > 100:
+                self.error_timestamps[error_type] = self.error_timestamps[error_type][-100:]
+    
+    def get_error_rate(self, error_type, time_window=300):
+        """Get error rate for specified type in last time_window seconds"""
+        with self.lock:
+            now = time.time()
+            recent_errors = [t for t in self.error_timestamps[error_type] 
+                            if now - t <= time_window]
+            return len(recent_errors)
+    
+    def get_report(self):
+        """Generate error summary report"""
+        with self.lock:
+            return {
+                "counts": dict(self.error_counts),
+                "rates": {
+                    err_type: self.get_error_rate(err_type)
+                    for err_type in self.error_counts
+                }
+            }
+```
+
+### Data Recovery Strategy
+```python
+def recover_profile_data(profile_id):
+    """Attempt to recover corrupted profile data"""
+    # Try primary backup
+    try:
+        backup_path = f"backups/profiles/{profile_id}.json"
+        if os.path.exists(backup_path):
+            with open(backup_path, 'r') as f:
+                profile_data = json.load(f)
+                # Validate recovered data
+                if validate_profile_schema(profile_data):
+                    return profile_data
+    except Exception as e:
+        logging.warning(f"Failed to recover from primary backup: {e}")
+    
+    # Try point-in-time backups (last 5 days)
+    for days_ago in range(1, 6):
+        try:
+            date_str = (datetime.now() - timedelta(days=days_ago)).strftime("%Y%m%d")
+            backup_path = f"backups/profiles/archive/{date_str}/{profile_id}.json"
+            if os.path.exists(backup_path):
+                with open(backup_path, 'r') as f:
+                    profile_data = json.load(f)
+                    if validate_profile_schema(profile_data):
+                        return profile_data
+        except Exception as e:
+            logging.warning(f"Failed to recover from {days_ago}-day backup: {e}")
+    
+    # If all recovery attempts fail
+    raise ProfileCorruptionError(f"Unable to recover data for profile {profile_id}")
+```
+
+### Storage Health Check
+```python
+def perform_storage_health_check():
+    """Diagnostic tool to verify storage system health"""
+    results = {
+        "status": "healthy",
+        "issues": []
+    }
+    
+    # Check database connection
+    try:
+        conn = get_db_connection()
+        conn.execute("SELECT 1")
+        conn.close()
+    except Exception as e:
+        results["status"] = "unhealthy"
+        results["issues"].append(f"Connection error: {str(e)}")
+    
+    # Check database integrity
+    try:
+        conn = get_db_connection()
+        integrity_check = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity_check != "ok":
+            results["status"] = "unhealthy"
+            results["issues"].append(f"Integrity check failed: {integrity_check}")
+        conn.close()
+    except Exception as e:
+        results["status"] = "unhealthy"
+        results["issues"].append(f"Integrity check error: {str(e)}")
+    
+    # Check backup system
+    try:
+        if not os.path.exists("backups/profiles"):
+            results["status"] = "degraded"
+            results["issues"].append("Backup directory not found")
+    except Exception as e:
+        results["status"] = "degraded"
+        results["issues"].append(f"Backup check error: {str(e)}")
+    
+    return results
+```
+</info added on 2025-05-04T02:47:26.760Z>
+
+<info added on 2025-05-04T04:26:12.856Z>
+## Error Handling Implementation Progress
+
+### Exception Hierarchy Implementation
+```python
+# src/exceptions.py
+class ProfileStorageError(Exception):
+    """Base exception for all profile storage errors"""
+    pass
+
+class ProfileNotFoundError(ProfileStorageError):
+    """Raised when a profile cannot be found"""
+    pass
+
+class ProfileValidationError(ProfileStorageError):
+    """Raised when profile data fails validation"""
+    pass
+
+class ProfileStorageConnectionError(ProfileStorageError):
+    """Raised when there are issues connecting to storage"""
+    pass
+
+class ProfileConcurrencyError(ProfileStorageError):
+    """Raised when concurrent operations conflict"""
+    pass
+
+class ProfileCorruptionError(ProfileStorageError):
+    """Raised when profile data is corrupted or invalid"""
+    pass
+```
+
+### Database Error Handling Implementation
+```python
+# src/profile_repository.py
+import functools
+import logging
+import sqlite3
+from .exceptions import *
+
+def map_sqlite_exception(e):
+    """Maps SQLite exceptions to custom exception types"""
+    error_msg = str(e).lower()
+    if "no such table" in error_msg:
+        return ProfileCorruptionError(f"Database schema issue: {e}")
+    elif "database is locked" in error_msg:
+        return ProfileConcurrencyError(f"Database locked: {e}")
+    elif "disk i/o error" in error_msg or "unable to open database" in error_msg:
+        return ProfileStorageConnectionError(f"Database connection failed: {e}")
+    elif "constraint failed" in error_msg:
+        return ProfileValidationError(f"Data constraint violation: {e}")
+    else:
+        return ProfileStorageError(f"Database error: {e}")
+
+def handle_db_errors(func):
+    """Decorator to handle database errors consistently"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except sqlite3.Error as e:
+            logging.error(f"Database error in {func.__name__}: {e}", exc_info=True)
+            raise map_sqlite_exception(e)
+        except json.JSONDecodeError as e:
+            logging.error(f"JSON decode error in {func.__name__}: {e}", exc_info=True)
+            raise ProfileCorruptionError(f"Invalid JSON data: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
+            raise
+    return wrapper
+```
+
+### Example Repository Method Implementation
+```python
+class ProfileRepository:
+    # ...
+    
+    @handle_db_errors
+    def get_profile(self, profile_id):
+        """Get a profile by ID with robust error handling"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT data FROM profiles WHERE id = ?", (profile_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise ProfileNotFoundError(f"Profile with ID {profile_id} not found")
+            
+        try:
+            profile_data = json.loads(row[0])
+            return profile_data
+        except json.JSONDecodeError as e:
+            raise ProfileCorruptionError(f"Corrupted profile data for ID {profile_id}: {e}")
+    
+    @handle_db_errors
+    def save_profile(self, profile_id, profile_data):
+        """Save a profile with error handling"""
+        # Validate profile data before saving
+        if not self._validate_profile(profile_data):
+            raise ProfileValidationError(f"Invalid profile data for ID {profile_id}")
+            
+        try:
+            serialized_data = json.dumps(profile_data)
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO profiles (id, data, updated_at) VALUES (?, ?, ?)",
+                (profile_id, serialized_data, datetime.now().isoformat())
+            )
+            self.conn.commit()
+            return True
+        except Exception as e:
+            self.conn.rollback()
+            raise
+```
+</info added on 2025-05-04T04:26:12.856Z>
+
+<info added on 2025-05-04T05:06:07.566Z>
+## Retry Logic Implementation for Database Lock Errors
+
+```python
+# src/profile_repository.py
+import time
+
+def handle_db_errors(func):
+    """Decorator to handle database errors with retry logic for locks"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        retry_count = 0
+        
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                error_msg = str(e).lower()
+                if "database is locked" in error_msg and retry_count < max_retries:
+                    # Exponential backoff for database locks
+                    retry_count += 1
+                    wait_time = 0.2 * (2 ** (retry_count - 1))
+                    logging.warning(
+                        f"Database locked, retrying in {wait_time:.2f}s (attempt {retry_count}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logging.error(f"Database error in {func.__name__}: {e}", exc_info=True)
+                    raise map_sqlite_exception(e)
+            except sqlite3.Error as e:
+                logging.error(f"Database error in {func.__name__}: {e}", exc_info=True)
+                raise map_sqlite_exception(e)
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON decode error in {func.__name__}: {e}", exc_info=True)
+                raise ProfileCorruptionError(f"Invalid JSON data: {e}")
+            except Exception as e:
+                logging.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
+                raise
+    return wrapper
+```
+
+### Usage Statistics for Lock Monitoring
+
+```python
+class DatabaseLockMonitor:
+    def __init__(self):
+        self.lock_events = []
+        self.lock = threading.RLock()
+        
+    def record_lock_event(self, operation_name, retry_count):
+        with self.lock:
+            self.lock_events.append({
+                "timestamp": time.time(),
+                "operation": operation_name,
+                "retries": retry_count
+            })
+            # Keep only the last 100 events
+            if len(self.lock_events) > 100:
+                self.lock_events = self.lock_events[-100:]
+    
+    def get_lock_frequency(self, time_window=300):
+        """Get number of lock events in the last time_window seconds"""
+        with self.lock:
+            now = time.time()
+            recent_locks = [e for e in self.lock_events 
+                           if now - e["timestamp"] <= time_window]
+            return len(recent_locks)
+            
+    def get_problematic_operations(self):
+        """Identify operations with the most lock conflicts"""
+        with self.lock:
+            operation_counts = {}
+            for event in self.lock_events:
+                op = event["operation"]
+                operation_counts[op] = operation_counts.get(op, 0) + 1
+            return sorted(operation_counts.items(), key=lambda x: x[1], reverse=True)
+```
+</info added on 2025-05-04T05:06:07.566Z>
+
+<info added on 2025-05-04T06:37:01.676Z>
+## Storage Health Check Implementation
+
+```python
+# src/profile_repository.py
+import os
+import logging
+
+class ProfileRepository:
+    # ... existing methods ...
+    
+    def perform_storage_health_check(self):
+        """
+        Performs comprehensive health check on the storage system
+        Returns a dictionary with health status information
+        """
+        results = {
+            "status": "healthy",
+            "issues": [],
+            "checks_performed": []
+        }
+        
+        # Check 1: Database connection
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            results["checks_performed"].append("connection")
+            logging.info("Storage health check: Database connection successful")
+        except Exception as e:
+            results["status"] = "unhealthy"
+            results["issues"].append(f"Connection error: {str(e)}")
+            logging.error(f"Storage health check: Connection error - {str(e)}")
+        
+        # Check 2: Database integrity
+        try:
+            cursor = self.conn.cursor()
+            integrity_result = cursor.execute("PRAGMA integrity_check").fetchone()[0]
+            results["checks_performed"].append("integrity")
+            
+            if integrity_result != "ok":
+                results["status"] = "unhealthy"
+                results["issues"].append(f"Integrity check failed: {integrity_result}")
+                logging.error(f"Storage health check: Integrity check failed - {integrity_result}")
+            else:
+                logging.info("Storage health check: Database integrity verified")
+        except Exception as e:
+            results["status"] = "unhealthy"
+            results["issues"].append(f"Integrity check error: {str(e)}")
+            logging.error(f"Storage health check: Integrity check error - {str(e)}")
+        
+        # Check 3: Backup directory
+        try:
+            db_path = self.conn.execute("PRAGMA database_list").fetchone()[2]
+            db_dir = os.path.dirname(db_path)
+            backup_dir = os.path.join(db_dir, "backups")
+            
+            results["checks_performed"].append("backup_directory")
+            
+            if not os.path.exists(backup_dir):
+                if results["status"] == "healthy":
+                    results["status"] = "degraded"
+                results["issues"].append("Backup directory not found")
+                logging.warning("Storage health check: Backup directory not found")
+            else:
+                logging.info("Storage health check: Backup directory exists")
+        except Exception as e:
+            if results["status"] == "healthy":
+                results["status"] = "degraded"
+            results["issues"].append(f"Backup check error: {str(e)}")
+            logging.error(f"Storage health check: Backup check error - {str(e)}")
+        
+        logging.info(f"Storage health check complete - Status: {results['status']}")
+        return results
+```
+</info added on 2025-05-04T06:37:01.676Z>
+
+## 8. 8. Ensure proper serialization/deserialization of JSON schema definitions [done]
+### Dependencies: None
+### Description: Implement robust handling of JSON schema data to ensure consistent storage, retrieval, and validation of Analysis Profile schemas.
+### Details:
+1. Create specialized serialization/deserialization methods:
+   - to_json(): Convert schema objects to JSON string
+   - from_json(): Parse JSON string into schema objects
+   - to_dict(): Convert to Python dictionary representation
+   - from_dict(): Create from dictionary representation
+2. Implement schema validation against JSON Schema standard
+3. Add schema versioning support:
+   - Include schema version in metadata
+   - Provide migration paths between versions
+4. Implement schema optimization:
+   - Compression for large schemas
+   - Reference handling for repeated elements
+5. Add schema utilities:
+   - schema_diff(): Compare schemas for differences
+   - schema_merge(): Combine compatible schemas
+   - extract_schema_subset(): Get specific parts of a schema
+6. Create documentation generators from schema definitions
+7. Implement schema visualization tools
+8. Add support for schema templates and inheritance
+9. Ensure proper handling of special data types (dates, binary data)
+
+<info added on 2025-05-04T02:48:00.293Z>
+Here's additional information for the serialization/deserialization task:
+
+## Implementation Details
+
+1. **Error Handling Strategy**:
+   - Implement custom exception hierarchy for schema errors:
+     ```python
+     class SchemaError(Exception): pass
+     class SchemaSerializationError(SchemaError): pass
+     class SchemaDeserializationError(SchemaError): pass
+     class SchemaValidationError(SchemaError): pass
+     ```
+   - Add context to exceptions for easier debugging:
+     ```python
+     try:
+         # serialization code
+     except Exception as e:
+         raise SchemaSerializationError(f"Failed to serialize schema '{schema_id}': {str(e)}") from e
+     ```
+
+2. **Performance Optimization**:
+   - Implement caching for frequently accessed schemas:
+     ```python
+     @lru_cache(maxsize=100)
+     def get_validated_schema(schema_id):
+         # Fetch and validate schema
+         return schema
+     ```
+   - Use `orjson` instead of standard `json` for performance-critical paths:
+     ```python
+     import orjson
+     
+     def to_json_fast(schema_dict):
+         return orjson.dumps(schema_dict)
+     
+     def from_json_fast(json_bytes):
+         return orjson.loads(json_bytes)
+     ```
+
+3. **Schema Referencing System**:
+   - Implement JSON Schema `$ref` resolution for complex schemas:
+     ```python
+     def resolve_references(schema, reference_store):
+         """Resolves $ref references in a schema using the reference_store"""
+         # Implementation that walks the schema and replaces $ref with actual content
+     ```
+   - Add circular reference detection to prevent infinite loops
+
+4. **Schema Migration Framework**:
+   ```python
+   def migrate_schema(schema_dict, from_version, to_version):
+       """Migrates schema from one version to another"""
+       migration_path = build_migration_path(from_version, to_version)
+       for step in migration_path:
+           schema_dict = apply_migration_step(schema_dict, step)
+       return schema_dict
+   ```
+
+5. **Binary Data Handling**:
+   - Implement Base64 encoding/decoding for binary data in schemas:
+     ```python
+     def encode_binary_fields(schema_dict):
+         """Encodes binary data in schema to base64 strings"""
+         # Implementation
+     
+     def decode_binary_fields(schema_dict):
+         """Decodes base64 strings back to binary data"""
+         # Implementation
+     ```
+
+6. **Schema Compression**:
+   - Add optional compression for large schemas:
+     ```python
+     import zlib
+     
+     def compress_schema(schema_json):
+         return zlib.compress(schema_json.encode('utf-8'))
+     
+     def decompress_schema(compressed_data):
+         return zlib.decompress(compressed_data).decode('utf-8')
+     ```
+</info added on 2025-05-04T02:48:00.293Z>
+
+<info added on 2025-05-04T02:50:04.850Z>
+## Implementation Details for JSON Schema Serialization/Deserialization
+
+### Schema Integrity Verification
+
+1. **Checksum Implementation**:
+   ```python
+   import hashlib
+   
+   def compute_schema_checksum(schema_dict):
+       """Compute a checksum for schema to verify integrity during transfers"""
+       # Sort keys for consistent serialization regardless of dict order
+       canonical_json = json.dumps(schema_dict, sort_keys=True)
+       return hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()
+   
+   def verify_schema_integrity(schema_dict, expected_checksum):
+       """Verify schema hasn't been corrupted during storage/retrieval"""
+       actual_checksum = compute_schema_checksum(schema_dict)
+       if actual_checksum != expected_checksum:
+           raise SchemaIntegrityError(f"Schema checksum mismatch: expected {expected_checksum}, got {actual_checksum}")
+       return True
+   ```
+
+2. **Defensive Deserialization**:
+   ```python
+   def safe_schema_load(json_string, schema_id=None):
+       """Safely load schema with additional type checking and sanitization"""
+       try:
+           # Parse with strict mode to reject duplicate keys
+           schema_dict = json.loads(json_string, strict=True)
+           
+           # Validate basic structure before accepting
+           if not isinstance(schema_dict, dict):
+               raise TypeError("Schema root must be a JSON object")
+               
+           # Sanitize potentially dangerous values
+           sanitize_schema_values(schema_dict)
+           
+           return schema_dict
+       except json.JSONDecodeError as e:
+           line_context = json_string.splitlines()[max(0, e.lineno-1)] if e.lineno else ""
+           raise SchemaDeserializationError(
+               f"Invalid JSON in schema {schema_id or 'unknown'}: {e.msg} at line {e.lineno}, column {e.colno}\n"
+               f"Context: {line_context}"
+           ) from e
+   ```
+
+3. **Transaction Safety**:
+   ```python
+   def atomic_schema_update(db_connection, profile_id, schema_dict):
+       """Update schema with transaction safety to prevent partial updates"""
+       schema_json = json.dumps(schema_dict)
+       checksum = compute_schema_checksum(schema_dict)
+       
+       cursor = db_connection.cursor()
+       try:
+           cursor.execute("BEGIN TRANSACTION")
+           cursor.execute(
+               "UPDATE analysis_profiles SET schema_definition = ?, schema_checksum = ? WHERE id = ?",
+               (schema_json, checksum, profile_id)
+           )
+           if cursor.rowcount == 0:
+               cursor.execute("ROLLBACK")
+               raise ProfileNotFoundError(f"Profile with ID {profile_id} not found")
+           cursor.execute("COMMIT")
+       except Exception as e:
+           cursor.execute("ROLLBACK")
+           raise ProfileDatabaseError(f"Failed to update schema: {str(e)}") from e
+   ```
+
+4. **Schema Size Management**:
+   ```python
+   def check_schema_size(schema_dict, max_size_kb=1024):
+       """Check if schema exceeds reasonable size limits"""
+       schema_json = json.dumps(schema_dict)
+       size_kb = len(schema_json) / 1024
+       
+       if size_kb > max_size_kb:
+           raise SchemaValidationError(
+               f"Schema size ({size_kb:.2f} KB) exceeds maximum allowed size ({max_size_kb} KB). "
+               "Consider optimizing or splitting the schema."
+           )
+       
+       return size_kb
+   ```
+
+5. **Backward Compatibility Helpers**:
+   ```python
+   def ensure_schema_compatibility(schema_dict):
+       """Add compatibility layer for handling older schema versions"""
+       # Add schema version if missing (for older schemas)
+       if "version" not in schema_dict:
+           schema_dict["version"] = "1.0"
+           
+       # Normalize field names for consistency
+       if "fields" in schema_dict and isinstance(schema_dict["fields"], list):
+           for field in schema_dict["fields"]:
+               # Convert legacy camelCase to snake_case
+               if "fieldName" in field and "field_name" not in field:
+                   field["field_name"] = field.pop("fieldName")
+       
+       return schema_dict
+   ```
+</info added on 2025-05-04T02:50:04.850Z>
+
+<info added on 2025-05-04T06:52:58.921Z>
+## JSON Schema Standard Validation Implementation
+
+1. **Schema Validation Against JSON Schema Standard**:
+   ```python
+   from jsonschema import Draft7Validator, exceptions as schema_exceptions
+
+   def validate_schema_against_standard(schema_definition):
+       """
+       Validates that a schema definition conforms to JSON Schema standard.
+       
+       Args:
+           schema_definition (dict): The schema to validate
+           
+       Raises:
+           SchemaValidationError: If the schema doesn't conform to JSON Schema standard
+       """
+       try:
+           # Validate the schema itself against JSON Schema meta-schema
+           Draft7Validator.check_schema(schema_definition)
+           return True
+       except schema_exceptions.SchemaError as e:
+           # Extract path to the error location
+           path = ".".join(str(p) for p in e.path)
+           raise SchemaValidationError(
+               f"Invalid JSON Schema at path '{path}': {e.message}"
+           ) from e
+   ```
+
+2. **Integration with Profile Repository**:
+   ```python
+   def _validate_profile_data(self, profile_data, profile_id=None):
+       """Validates profile data before saving to database"""
+       # Existing validation code...
+       
+       # Replace old validation with standard JSON Schema validation
+       if "schema_definition" in profile_data:
+           schema_def = profile_data["schema_definition"]
+           # First validate it's proper JSON Schema
+           validate_schema_against_standard(schema_def)
+           
+           # Then validate any additional application-specific requirements
+           self._validate_application_specific_schema_rules(schema_def)
+   ```
+
+3. **Application-Specific Schema Validation**:
+   ```python
+   def _validate_application_specific_schema_rules(self, schema_def):
+       """
+       Validates application-specific schema rules beyond JSON Schema standard
+       
+       Args:
+           schema_def (dict): The schema definition to validate
+       """
+       # Check for required application-specific metadata
+       if "metadata" not in schema_def:
+           raise SchemaValidationError("Schema must contain a 'metadata' section")
+           
+       # Validate schema version format
+       if "version" in schema_def:
+           version = schema_def["version"]
+           if not re.match(r'^\d+\.\d+(\.\d+)?$', str(version)):
+               raise SchemaValidationError(
+                   f"Schema version '{version}' must follow semantic versioning format (e.g., '1.0' or '1.0.1')"
+               )
+   ```
+
+4. **Schema Validation Unit Tests**:
+   ```python
+   def test_validate_schema_against_standard():
+       # Valid schema should pass validation
+       valid_schema = {
+           "type": "object",
+           "properties": {
+               "name": {"type": "string"},
+               "age": {"type": "integer", "minimum": 0}
+           },
+           "required": ["name"]
+       }
+       assert validate_schema_against_standard(valid_schema) is True
+       
+       # Invalid schema should raise SchemaValidationError
+       invalid_schema = {
+           "type": "object",
+           "properties": {
+               "name": {"type": "invalid_type"},  # Invalid type
+           }
+       }
+       with pytest.raises(SchemaValidationError) as excinfo:
+           validate_schema_against_standard(invalid_schema)
+       assert "Invalid JSON Schema" in str(excinfo.value)
+   ```
+</info added on 2025-05-04T06:52:58.921Z>
+

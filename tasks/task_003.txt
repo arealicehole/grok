@@ -1,0 +1,780 @@
+# Task ID: 3
+# Title: Build basic UI for transcript input and profile management
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Create the user interface components for inputting transcripts and managing Analysis Profiles.
+# Details:
+1. Create main application window/layout
+2. Implement large text area for transcript input
+3. Build UI for profile management (list, create, edit, delete)
+4. Add form elements for profile name and instructions
+5. Implement profile selection mechanism (initially single selection)
+6. Create a 'Process' button to trigger analysis
+7. Add basic status indicators for processing state
+8. Implement error message display
+
+# Test Strategy:
+Perform manual UI testing for layout and functionality, verify form validation, test profile creation and selection, and ensure proper error message display.
+
+# Subtasks:
+## 1. Create main application window and transcript input area [done]
+### Dependencies: None
+### Description: Implement the main application layout and the transcript input component
+### Details:
+Implementation steps:
+1. Create a responsive main application container with appropriate padding and margins
+2. Implement a header section with application title and basic navigation
+3. Design and implement a large text area component for transcript input with:
+   - Placeholder text guiding users on what to input
+   - Character count indicator
+   - Clear button functionality
+   - Auto-save capability for draft transcripts
+4. Add appropriate styling and ensure the text area is responsive
+5. Implement basic keyboard shortcuts (Ctrl+A to select all, etc.)
+
+Testing approach:
+- Verify text area properly accepts, displays and maintains large text inputs
+- Test responsiveness across different screen sizes
+- Validate that auto-save functionality works correctly
+- Ensure keyboard shortcuts function as expected
+
+<info added on 2025-05-05T01:07:26.870Z>
+# Implementation with customtkinter
+
+## Setup and Structure
+1. Install customtkinter: `pip install customtkinter`
+2. Create a modular structure:
+   - `src/main_app.py` - Main application class
+   - `src/components/transcript_input.py` - Encapsulated transcript component
+
+## Code Implementation
+
+```python
+# src/main_app.py
+import customtkinter as ctk
+from components.transcript_input import TranscriptInput
+
+class GrokApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        
+        # Configure window
+        self.title("Transcript Analyzer")
+        self.geometry("900x700")
+        ctk.set_appearance_mode("System")  # Use system theme
+        ctk.set_default_color_theme("blue")
+        
+        # Configure grid layout (4x4)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        
+        # Header
+        self.header = ctk.CTkLabel(self, text="Transcript Analyzer", font=ctk.CTkFont(size=20, weight="bold"))
+        self.header.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="nw")
+        
+        # Transcript input area
+        self.transcript_input = TranscriptInput(self)
+        self.transcript_input.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
+
+# src/components/transcript_input.py
+import customtkinter as ctk
+import time
+
+class TranscriptInput(ctk.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master)
+        
+        # Configure grid layout
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=0)
+        
+        # Text area
+        self.textbox = ctk.CTkTextbox(self, wrap="word", font=ctk.CTkFont(size=14))
+        self.textbox.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="nsew")
+        self.textbox.insert("0.0", "Paste your transcript here...")
+        self.textbox.bind("<FocusIn>", self.clear_placeholder)
+        
+        # Bottom controls frame
+        self.controls_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.controls_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.controls_frame.grid_columnconfigure(0, weight=1)
+        
+        # Character count
+        self.char_count = ctk.CTkLabel(self.controls_frame, text="Characters: 0")
+        self.char_count.grid(row=0, column=0, sticky="w")
+        
+        # Clear button
+        self.clear_button = ctk.CTkButton(self.controls_frame, text="Clear", command=self.clear_text)
+        self.clear_button.grid(row=0, column=1, padx=(10, 0))
+        
+        # Setup auto-save timer
+        self.textbox.bind("<KeyRelease>", self.on_text_change)
+        self.last_save_time = 0
+        
+        # Setup keyboard shortcuts
+        self.textbox.bind("<Control-a>", self.select_all)
+    
+    def clear_placeholder(self, event):
+        if self.textbox.get("0.0", "end-1c") == "Paste your transcript here...":
+            self.textbox.delete("0.0", "end")
+    
+    def clear_text(self):
+        self.textbox.delete("0.0", "end")
+        self.update_char_count()
+    
+    def on_text_change(self, event):
+        self.update_char_count()
+        current_time = time.time()
+        if current_time - self.last_save_time > 5:  # Auto-save every 5 seconds
+            self.auto_save()
+            self.last_save_time = current_time
+    
+    def update_char_count(self):
+        count = len(self.textbox.get("0.0", "end-1c"))
+        self.char_count.configure(text=f"Characters: {count}")
+    
+    def auto_save(self):
+        # Implement auto-save functionality
+        # For now just print, but could save to file or local storage
+        print("Auto-saving transcript...")
+    
+    def select_all(self, event):
+        self.textbox.tag_add("sel", "0.0", "end")
+        return "break"  # Prevents default behavior
+```
+
+## Styling Considerations
+- Use system theme detection for light/dark mode compatibility
+- Ensure padding scales appropriately on different screen sizes
+- Consider using a monospaced font for transcript input for better readability
+</info added on 2025-05-05T01:07:26.870Z>
+
+## 2. Implement profile listing and selection UI [done]
+### Dependencies: 3.1
+### Description: Create the UI components for displaying, selecting and managing analysis profiles
+### Details:
+Implementation steps:
+1. Create a profile list component that displays existing analysis profiles
+2. Implement a selection mechanism (radio buttons or highlighted selection)
+3. Add a default profile that's pre-selected for new users
+4. Design the profile list item component showing:
+   - Profile name
+   - Brief preview of profile instructions (truncated)
+   - Last used indicator
+5. Implement sorting/filtering options for profiles
+6. Add empty state UI for when no profiles exist
+
+Testing approach:
+- Verify profiles display correctly in the list
+- Test selection mechanism works properly
+- Validate default profile selection
+- Test empty state rendering
+- Ensure profile list is scrollable when many profiles exist
+
+<info added on 2025-05-05T02:13:09.598Z>
+Implementation Plan:
+1. Modify main window grid layout (src/main_app.py) to add a new column for profile management next to the transcript textbox.
+2. Create a ctk.CTkFrame in the new column.
+3. Inside the frame, add a ctk.CTkScrollableFrame.
+4. Fetch profile list (likely using src/profile_repository.py - need to confirm functions).
+5. Populate the scrollable frame with ctk.CTkRadioButtons, one per profile, displaying the name.
+6. Implement logic to store the selected profile ID.
+7. Handle default selection (first profile or a dedicated default) and empty state display.
+
+Code structure:
+```python
+# In src/main_app.py
+self.profile_frame = ctk.CTkFrame(self.main_frame)
+self.profile_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+
+self.profile_label = ctk.CTkLabel(self.profile_frame, text="Analysis Profiles")
+self.profile_label.pack(pady=5)
+
+self.profile_scrollable = ctk.CTkScrollableFrame(self.profile_frame)
+self.profile_scrollable.pack(fill="both", expand=True)
+
+self.profile_radio_var = ctk.StringVar(value="")
+self.profile_buttons = {}
+
+# Empty state handling
+self.empty_state_label = ctk.CTkLabel(self.profile_scrollable, 
+                                     text="No profiles available.\nCreate your first profile to get started.")
+
+def load_profiles(self):
+    profiles = profile_repository.get_all_profiles()
+    
+    # Clear existing buttons
+    for widget in self.profile_scrollable.winfo_children():
+        widget.destroy()
+    
+    if not profiles:
+        self.empty_state_label.pack(pady=20)
+        return
+        
+    # Create radio button for each profile
+    for profile in profiles:
+        radio = ctk.CTkRadioButton(self.profile_scrollable, 
+                                  text=profile.name,
+                                  variable=self.profile_radio_var,
+                                  value=str(profile.id),
+                                  command=self.on_profile_selected)
+        radio.pack(anchor="w", pady=5)
+        self.profile_buttons[profile.id] = radio
+        
+    # Select default profile
+    if profiles and self.profile_radio_var.get() == "":
+        default_id = self.get_default_profile_id(profiles)
+        self.profile_radio_var.set(str(default_id))
+```
+</info added on 2025-05-05T02:13:09.598Z>
+
+## 3. Build profile creation and editing form [in-progress]
+### Dependencies: 3.2
+### Description: Implement the UI for creating new profiles and editing existing ones
+### Details:
+Implementation steps:
+1. Create a modal or dedicated view for profile creation/editing
+2. Implement form with the following fields:
+   - Profile name input (with validation)
+   - Instructions text area for detailed analysis guidance
+   - Optional category/tag selection
+3. Add form validation logic:
+   - Required fields validation
+   - Character limits for profile name
+   - Duplicate name prevention
+4. Implement save and cancel buttons with appropriate actions
+5. Add confirmation dialog for canceling with unsaved changes
+
+Testing approach:
+- Test form validation for all fields
+- Verify save functionality correctly creates/updates profiles
+- Test cancel functionality and confirmation dialog
+- Validate that edited profiles update correctly in the profile list
+- Test edge cases like very long profile names or instructions
+
+<info added on 2025-05-05T02:59:36.589Z>
+## Implementation Plan Details
+
+### Component Architecture
+- Use the Model-View-Controller pattern for the profile editor
+- Implement form validation as a separate utility class (`ProfileValidator`) for reusability
+
+### UI Implementation Details
+```python
+# Example implementation for ProfileEditorWindow
+class ProfileEditorWindow(ctk.CTkToplevel):
+    def __init__(self, master, repository, profile_id=None, on_save_callback=None):
+        super().__init__(master)
+        self.repository = repository
+        self.profile_id = profile_id
+        self.on_save_callback = on_save_callback
+        self.is_dirty = False
+        
+        # Set window properties
+        self.title("Edit Profile" if profile_id else "Create Profile")
+        self.geometry("500x400")
+        self.resizable(False, False)
+        
+        # Create form layout with proper padding and grid configuration
+        self._create_widgets()
+        self._load_profile_data()
+        self._bind_events()
+```
+
+### Form Validation Logic
+```python
+def _validate_form(self):
+    # Get form values
+    name = self.name_entry.get().strip()
+    instructions = self.instructions_text.get("1.0", "end-1c").strip()
+    
+    # Validation rules
+    if not name:
+        return False, "Profile name is required"
+    
+    if len(name) > 50:
+        return False, "Profile name must be 50 characters or less"
+    
+    # Check for duplicate names (excluding current profile)
+    existing = self.repository.get_profile_by_name(name)
+    if existing and (not self.profile_id or existing.id != self.profile_id):
+        return False, "A profile with this name already exists"
+        
+    return True, None
+```
+
+### Change Tracking Implementation
+```python
+def _mark_as_dirty(self, *args):
+    """Mark the form as having unsaved changes"""
+    self.is_dirty = True
+    
+def _confirm_discard_changes(self):
+    """Show confirmation dialog for unsaved changes"""
+    if not self.is_dirty:
+        return True
+        
+    response = CTkMessagebox(
+        title="Unsaved Changes",
+        message="You have unsaved changes. Discard changes?",
+        icon="warning",
+        option_1="Cancel",
+        option_2="Discard"
+    )
+    return response.get() == "Discard"
+```
+
+### Integration with Main App
+```python
+# In MainApp class
+def _setup_profile_controls(self):
+    # Create button frame
+    btn_frame = ctk.CTkFrame(self.profile_frame)
+    btn_frame.pack(fill="x", padx=10, pady=(5, 10))
+    
+    # Create New Profile button
+    create_btn = ctk.CTkButton(
+        btn_frame, 
+        text="Create Profile",
+        command=self._open_profile_editor
+    )
+    create_btn.pack(side="left", padx=5)
+    
+    # Edit Profile button
+    self.edit_btn = ctk.CTkButton(
+        btn_frame, 
+        text="Edit Profile",
+        command=self._edit_selected_profile,
+        state="disabled"  # Initially disabled
+    )
+    self.edit_btn.pack(side="left", padx=5)
+```
+
+### Keyboard Shortcuts
+- Add Ctrl+S for saving the profile
+- Add Esc for canceling/closing the editor
+- Implement Tab navigation between form fields
+</info added on 2025-05-05T02:59:36.589Z>
+
+<info added on 2025-05-05T03:02:22.573Z>
+## Implementation Plan Details
+
+### Form Field Specifications
+- Profile name: Max 50 characters, required, unique
+- Instructions: Multi-line text area with scrollbar, min height 150px
+- Tags/Categories: Implement as CTkCheckboxes in a scrollable frame with common categories
+
+### State Management
+```python
+class ProfileEditorWindow(ctk.CTkToplevel):
+    def __init__(self, master, repository, profile_id=None, on_save_callback=None):
+        # Initialize state variables
+        self.original_data = {}  # Store original profile data for comparison
+        self.current_tags = set()  # Track selected tags
+        
+    def _track_changes(self):
+        """Compare current form state with original data to determine if changes exist"""
+        current_name = self.name_entry.get().strip()
+        current_instructions = self.instructions_text.get("1.0", "end-1c").strip()
+        
+        # Check if any field has changed from original
+        return (current_name != self.original_data.get('name', '') or
+                current_instructions != self.original_data.get('instructions', '') or
+                self.current_tags != set(self.original_data.get('tags', [])))
+```
+
+### Error Handling
+```python
+def _save_profile(self):
+    try:
+        valid, error_msg = self._validate_form()
+        if not valid:
+            CTkMessagebox(title="Validation Error", message=error_msg, icon="cancel")
+            return False
+            
+        # Create/update profile object
+        profile_data = {
+            'name': self.name_entry.get().strip(),
+            'instructions': self.instructions_text.get("1.0", "end-1c").strip(),
+            'tags': list(self.current_tags)
+        }
+        
+        if self.profile_id:
+            profile_data['id'] = self.profile_id
+            
+        success = self.repository.save_profile(profile_data)
+        if not success:
+            CTkMessagebox(title="Save Error", message="Failed to save profile", icon="cancel")
+            return False
+            
+        if self.on_save_callback:
+            self.on_save_callback()
+            
+        self.destroy()
+        return True
+        
+    except Exception as e:
+        CTkMessagebox(title="Error", message=f"An error occurred: {str(e)}", icon="cancel")
+        return False
+```
+
+### Accessibility Considerations
+- Add tooltips to all form fields using the `CTkToolTip` class
+- Implement keyboard navigation with Tab order
+- Add descriptive labels and placeholders for all fields
+- Ensure proper contrast for text elements
+- Add status messages for screen readers when validation errors occur
+
+### Testing Scenarios
+1. Create profile with minimum required fields
+2. Create profile with all fields populated
+3. Attempt to create profile with duplicate name
+4. Edit profile and save without changes
+5. Edit profile name to match another existing profile
+6. Test very long text in instructions field
+7. Test special characters in profile name
+8. Test cancel with unsaved changes
+9. Test window close (X button) with unsaved changes
+</info added on 2025-05-05T03:02:22.573Z>
+
+<info added on 2025-05-05T03:14:22.974Z>
+<info added on 2025-05-05T03:05:17.892Z>
+## Tag Selection Implementation Details
+
+### Tag Selection UI Component
+```python
+def _create_tag_selection(self):
+    # Create frame for tags section
+    tags_frame = ctk.CTkFrame(self.main_frame)
+    tags_frame.pack(fill="x", padx=10, pady=(10, 5))
+    
+    # Add label
+    tags_label = ctk.CTkLabel(tags_frame, text="Tags (Optional):", anchor="w")
+    tags_label.pack(fill="x", padx=5, pady=(5, 0))
+    
+    # Create scrollable frame for tags
+    self.tags_container = ctk.CTkScrollableFrame(tags_frame, height=100)
+    self.tags_container.pack(fill="x", padx=5, pady=5)
+    
+    # Predefined tags
+    self.predefined_tags = ["Meeting", "Interview", "Lecture", "Presentation", 
+                           "Brainstorming", "Customer Call", "Technical", "Legal", 
+                           "Medical", "Academic", "Personal", "Dictation"]
+    
+    # Tag checkboxes
+    self.tag_vars = {}
+    for i, tag in enumerate(self.predefined_tags):
+        row, col = divmod(i, 3)  # 3 columns of tags
+        var = ctk.BooleanVar(value=False)
+        checkbox = ctk.CTkCheckBox(self.tags_container, text=tag, variable=var,
+                                  command=self._mark_as_dirty)
+        checkbox.grid(row=row, column=col, padx=5, pady=2, sticky="w")
+        self.tag_vars[tag] = var
+```
+
+### Tag Data Handling
+```python
+def _load_profile_data(self):
+    """Load existing profile data into the form"""
+    if not self.profile_id:
+        self.original_data = {'name': '', 'instructions': '', 'tags': []}
+        return
+        
+    profile = self.repository.get_profile_by_id(self.profile_id)
+    if not profile:
+        return
+        
+    # Load basic profile data
+    self.name_entry.insert(0, profile.name)
+    self.instructions_text.insert("1.0", profile.instructions)
+    
+    # Load tags
+    if hasattr(profile, 'tags') and profile.tags:
+        for tag in profile.tags:
+            if tag in self.tag_vars:
+                self.tag_vars[tag].set(True)
+    
+    # Store original data for change detection
+    self.original_data = {
+        'name': profile.name,
+        'instructions': profile.instructions,
+        'tags': profile.tags if hasattr(profile, 'tags') else []
+    }
+    self.is_dirty = False
+
+def _get_selected_tags(self):
+    """Get list of currently selected tags"""
+    return [tag for tag, var in self.tag_vars.items() if var.get()]
+
+def _save_profile(self):
+    # Validation code...
+    
+    # Create profile data dictionary
+    profile_data = {
+        'name': self.name_entry.get().strip(),
+        'instructions': self.instructions_text.get("1.0", "end-1c").strip(),
+        'tags': self._get_selected_tags()
+    }
+    
+    # Save profile code...
+```
+
+### Model Updates Required
+```python
+# In src/models/analysis_profile.py
+class AnalysisProfile:
+    def __init__(self, id=None, name="", instructions="", tags=None):
+        self.id = id
+        self.name = name
+        self.instructions = instructions
+        self.tags = tags or []  # Default to empty list
+        
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'instructions': self.instructions,
+            'tags': self.tags
+        }
+        
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            id=data.get('id'),
+            name=data.get('name', ''),
+            instructions=data.get('instructions', ''),
+            tags=data.get('tags', [])
+        )
+```
+
+### Repository Updates
+```python
+# In src/repositories/profile_repository.py
+# Ensure the save_profile and load_profile methods handle the tags attribute
+
+def save_profile(self, profile_data):
+    # Existing code...
+    
+    # Make sure to include tags in the serialization
+    if isinstance(profile_data, dict):
+        profile_dict = profile_data
+    else:
+        profile_dict = profile_data.to_dict()
+        
+    # Save to JSON file...
+
+def load_profiles(self):
+    # When loading profiles, ensure tags are properly deserialized
+    # Existing code...
+    
+    profiles = []
+    for profile_dict in data:
+        # Ensure backward compatibility with profiles that don't have tags
+        if 'tags' not in profile_dict:
+            profile_dict['tags'] = []
+        profiles.append(AnalysisProfile.from_dict(profile_dict))
+```
+
+### Tag Filtering Integration
+```python
+# In src/app.py or main window class
+def _setup_profile_filter(self):
+    """Add tag filtering to the profile list"""
+    filter_frame = ctk.CTkFrame(self.profile_frame)
+    filter_frame.pack(fill="x", padx=10, pady=(5, 0))
+    
+    filter_label = ctk.CTkLabel(filter_frame, text="Filter by tag:", anchor="w")
+    filter_label.pack(side="left", padx=5)
+    
+    self.tag_filter = ctk.CTkComboBox(
+        filter_frame,
+        values=["All"] + self.predefined_tags,
+        command=self._filter_profiles_by_tag
+    )
+    self.tag_filter.set("All")
+    self.tag_filter.pack(side="left", padx=5)
+    
+def _filter_profiles_by_tag(self, tag):
+    """Filter the profile list by selected tag"""
+    self.profile_listbox.delete(0, "end")
+    
+    profiles = self.profile_repository.get_all_profiles()
+    for profile in profiles:
+        # If "All" is selected or profile has the selected tag
+        if tag == "All" or (hasattr(profile, 'tags') and tag in profile.tags):
+            self.profile_listbox.insert("end", profile.name)
+```
+</info added on 2025-05-05T03:05:17.892Z>
+</info added on 2025-05-05T03:14:22.974Z>
+
+<info added on 2025-05-05T04:20:18.623Z>
+## Integration Testing Plan
+
+### Test Cases for Profile Editor Integration
+1. **Creation Flow Test**
+   - Verify "Create Profile" button opens a new editor window
+   - Confirm window title shows "Create Profile"
+   - Test that saving creates a new profile in the repository
+   - Verify new profile appears in the profile list immediately
+
+2. **Edit Flow Test**
+   - Verify "Edit Profile" button is disabled when no profile is selected
+   - Confirm button enables when a profile is selected
+   - Test that editor opens with correct profile data loaded
+   - Verify changes are saved and reflected in the profile list
+
+3. **UI State Management**
+   - Test profile selection in the list properly enables/disables the edit button
+   - Verify multiple rapid clicks don't open multiple editor windows
+   - Test that editor window is modal (blocks interaction with main window)
+   - Verify editor window position is centered relative to main window
+
+### Responsive Design Considerations
+```python
+def _adjust_for_screen_size(self):
+    """Adjust editor size based on screen dimensions"""
+    # Get screen width and height
+    screen_width = self.winfo_screenwidth()
+    screen_height = self.winfo_screenheight()
+    
+    # Calculate dimensions (responsive to screen size)
+    width = min(600, int(screen_width * 0.6))
+    height = min(500, int(screen_height * 0.7))
+    
+    # Center window
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+    
+    # Set geometry
+    self.geometry(f"{width}x{height}+{x}+{y}")
+```
+
+### Profile Editor Focus Management
+```python
+def _setup_focus_behavior(self):
+    """Configure focus behavior for better UX"""
+    # Set initial focus to name field
+    self.after(100, lambda: self.name_entry.focus_set())
+    
+    # Prevent closing with Alt+F4 if dirty (show confirmation instead)
+    self.protocol("WM_DELETE_WINDOW", self._on_close_request)
+    
+    # Make window modal to prevent interaction with parent
+    self.grab_set()
+    self.transient(self.master)
+```
+
+### Profile List Refresh Implementation
+```python
+# In MainApp class
+def _refresh_profile_list(self):
+    """Refresh the profile list and maintain selection if possible"""
+    # Store currently selected profile name if any
+    selected_idx = self.profile_listbox.curselection()
+    selected_name = None
+    if selected_idx:
+        selected_name = self.profile_listbox.get(selected_idx[0])
+    
+    # Clear and reload the list
+    self.profile_listbox.delete(0, tk.END)
+    profiles = self.profile_repository.get_all_profiles()
+    
+    # Sort profiles alphabetically by name
+    profiles.sort(key=lambda p: p.name.lower())
+    
+    # Populate list and try to restore selection
+    new_selected_idx = 0
+    for i, profile in enumerate(profiles):
+        self.profile_listbox.insert(tk.END, profile.name)
+        if profile.name == selected_name:
+            new_selected_idx = i
+    
+    # Restore selection if possible
+    if profiles and selected_name:
+        self.profile_listbox.selection_set(new_selected_idx)
+        self.profile_listbox.see(new_selected_idx)
+```
+
+### Performance Optimization
+- Implement lazy loading of tag checkboxes for improved startup time
+- Use debouncing for change tracking to reduce CPU usage during typing
+- Implement profile caching to avoid unnecessary repository reads
+
+### Accessibility Enhancements
+```python
+def _setup_accessibility(self):
+    """Add accessibility features to the editor"""
+    # Add screen reader descriptions
+    self.name_entry.configure(takefocus=1)
+    self.instructions_text.configure(takefocus=1)
+    
+    # Add keyboard shortcut labels to buttons
+    self.save_button.configure(text="Save (Ctrl+S)")
+    self.cancel_button.configure(text="Cancel (Esc)")
+    
+    # Add high contrast mode toggle
+    contrast_var = ctk.BooleanVar(value=False)
+    contrast_cb = ctk.CTkCheckBox(
+        self.button_frame, 
+        text="High contrast", 
+        variable=contrast_var,
+        command=self._toggle_contrast_mode
+    )
+    contrast_cb.pack(side="left", padx=10)
+```
+</info added on 2025-05-05T04:20:18.623Z>
+
+## 4. Implement profile deletion and management controls [pending]
+### Dependencies: 3.2, 3.3
+### Description: Add functionality for deleting profiles and implement additional profile management controls
+### Details:
+Implementation steps:
+1. Add delete button/icon to profile list items
+2. Implement confirmation dialog for profile deletion
+3. Create UI for profile management actions:
+   - Duplicate profile functionality
+   - Export/import profile capabilities
+   - Profile reordering (drag and drop or priority setting)
+4. Add visual indicators for system default vs. user-created profiles
+5. Implement undo functionality for accidental deletions
+
+Testing approach:
+- Verify deletion works correctly with proper confirmation
+- Test duplicate functionality creates exact copies with unique names
+- Validate export/import functionality works across sessions
+- Test undo functionality restores deleted profiles correctly
+- Ensure system default profiles have appropriate protections
+
+## 5. Create processing controls and status indicators [pending]
+### Dependencies: 3.1, 3.2
+### Description: Implement the UI for triggering analysis and displaying processing status
+### Details:
+Implementation steps:
+1. Design and implement a prominent 'Process' button:
+   - Disabled state when no transcript or profile is selected
+   - Loading state during processing
+2. Create status indicators for the analysis process:
+   - Progress indicator (spinner, progress bar)
+   - Success/failure states
+3. Implement error message display component:
+   - Different styling for different error types
+   - Clear error message functionality
+   - Retry button for failed operations
+4. Add estimated processing time indicator
+5. Implement cancel processing functionality
+
+Testing approach:
+- Verify button states change appropriately based on input/selection
+- Test status indicators accurately reflect processing state
+- Validate error messages display correctly for different error scenarios
+- Test cancel functionality properly aborts processing
+- Ensure UI remains responsive during processing
+
+## 6. Enhance profile list UI [pending]
+### Dependencies: 3.2
+### Description: Add features to the profile list: display instruction preview and last used indicator on list items, and implement sorting/filtering options.
+### Details:
+
+
