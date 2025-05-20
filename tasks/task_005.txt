@@ -1,6 +1,6 @@
 # Task ID: 5
 # Title: Implement basic output display with JSON and Chat views
-# Status: pending
+# Status: done
 # Dependencies: 3, 4
 # Priority: medium
 # Description: Create the UI components to display analysis results in both JSON and basic Chat views.
@@ -16,3 +16,514 @@
 
 # Test Strategy:
 Test with various JSON outputs, verify correct formatting in both views, check toggle functionality, test copy feature, and validate display of different output sizes and structures.
+
+# Subtasks:
+## 1. Create output display container with view toggle [done]
+### Dependencies: None
+### Description: Implement the base container component for displaying analysis results with a toggle mechanism to switch between JSON and Chat views.
+### Details:
+1. Create a responsive container component with appropriate styling for the output display area.
+2. Implement a toggle control (tabs or buttons) to switch between JSON and Chat views.
+3. Set up state management for tracking the current view mode (JSON/Chat).
+4. Add a loading state indicator for when analysis is in progress.
+5. Implement basic error boundary to catch rendering errors.
+6. Test the toggle functionality across different screen sizes.
+7. Ensure the container has appropriate ARIA attributes for accessibility.
+
+<info added on 2025-05-20T15:42:49.451Z>
+## Initial Implementation Plan
+
+1. **Component Structure (`src/components/output_display.py`):**
+   * Create `OutputDisplayFrame(ctk.CTkFrame)`.
+   * Grid layout:
+       * Row 0: Toggle buttons (JSON, Chat).
+       * Row 1: Content area (will hold either JSON or Chat view).
+       * Row 2: Loading indicator (initially hidden).
+
+2. **Toggle Control:**
+   * Use `ctk.CTkSegmentedButton` for JSON/Chat view switching.
+   * Store current view mode in a variable (e.g., `self.current_view = "JSON"`).
+   * Callback function for the segmented button to update `self.current_view` and switch content.
+
+3. **State Management:**
+   * `self.current_view`: Stores "JSON" or "Chat".
+   * `self.is_loading`: Boolean to control visibility of loading indicator.
+   * `self.error_message`: Stores error string if an error occurs.
+
+4. **Content Area:**
+   * Initially, a placeholder `ctk.CTkLabel` in the content area. This will be replaced by actual JSON/Chat view components in later subtasks.
+
+5. **Loading Indicator:**
+   * `ctk.CTkProgressBar(mode="indeterminate")` or a `ctk.CTkLabel` with "Loading..." text.
+   * Show/hide based on `self.is_loading`.
+
+6. **Error Boundary (Basic):**
+   * A `ctk.CTkLabel` to display `self.error_message` if it's set.
+   * Wrap the main content switching logic in a try-except block to catch rendering issues and update `self.error_message`.
+
+7. **Styling & Responsiveness:**
+   * Use `weight` for grid rows/columns to ensure responsiveness.
+   * Define basic padding and spacing.
+
+8. **Accessibility (Initial ARIA):**
+   * Set `aria-label` for the toggle buttons.
+   * Use `aria-live="polite"` for the loading indicator and error message label.
+
+9. **Integration into `main_app.py`:**
+   * Add `OutputDisplayFrame` to the main application layout.
+   * Provide methods to `show_loading()`, `hide_loading()`, `set_data()`, `show_error()`.
+
+This plan focuses on the container and toggle mechanism. The actual JSON and Chat views will be implemented in subsequent subtasks (5.2 and 5.3).
+</info added on 2025-05-20T15:42:49.451Z>
+
+## 2. Implement JSON view with syntax highlighting and formatting [done]
+### Dependencies: 5.1
+### Description: Create a JSON view component that displays analysis results with proper formatting, syntax highlighting, and interactive features.
+### Details:
+1. Integrate a JSON viewer library (react-json-view or similar) for displaying formatted JSON.
+2. Configure syntax highlighting with appropriate color scheme for JSON elements.
+3. Implement collapsible/expandable nodes for nested JSON objects.
+4. Add search functionality within the JSON content.
+5. Ensure the component handles large JSON objects efficiently using virtualization or lazy loading.
+6. Test with various JSON structures including deeply nested objects.
+7. Verify proper rendering of different data types (strings, numbers, booleans, arrays, null values).
+
+<info added on 2025-05-20T15:54:22.304Z>
+## Implementation Details for JSON View Component
+
+### Syntax Highlighting Implementation
+```python
+def apply_syntax_highlighting(self, json_text):
+    # Clear existing text
+    self.text_widget.delete("1.0", "end")
+    self.text_widget.insert("1.0", json_text)
+    
+    # Define regex patterns for JSON elements
+    patterns = {
+        "key": r'"([^"]+)"\s*:',
+        "string": r':\s*"([^"]*)"',
+        "number": r':\s*(-?\d+\.?\d*)',
+        "boolean": r':\s*(true|false)',
+        "null": r':\s*(null)'
+    }
+    
+    # Apply tags based on patterns
+    for tag, pattern in patterns.items():
+        self.highlight_pattern(pattern, tag)
+```
+
+### Efficient Handling of Large JSON
+```python
+def set_json_data(self, data: dict):
+    # For large JSON objects, use a chunked rendering approach
+    json_text = json.dumps(data, indent=2)
+    
+    # If JSON is very large, use a chunked approach to avoid UI freezing
+    if len(json_text) > 100000:  # Threshold for "large" JSON
+        self.text_widget.config(state="normal")
+        self.text_widget.delete("1.0", "end")
+        
+        # Process in chunks of 10000 characters
+        chunk_size = 10000
+        for i in range(0, len(json_text), chunk_size):
+            chunk = json_text[i:i+chunk_size]
+            self.text_widget.insert("end", chunk)
+            # Allow UI to update between chunks
+            self.update_idletasks()
+        
+        # Apply highlighting after all text is inserted
+        self.apply_syntax_highlighting(json_text)
+    else:
+        # For smaller JSON, apply highlighting directly
+        self.apply_syntax_highlighting(json_text)
+```
+
+### Search Implementation
+```python
+def setup_search(self):
+    search_frame = ctk.CTkFrame(self)
+    search_frame.pack(fill="x", padx=5, pady=5)
+    
+    self.search_var = tk.StringVar()
+    search_entry = ctk.CTkEntry(search_frame, textvariable=self.search_var)
+    search_entry.pack(side="left", fill="x", expand=True)
+    
+    search_button = ctk.CTkButton(search_frame, text="Find", command=self.find_text)
+    search_button.pack(side="right", padx=5)
+    
+    # Bind Enter key to search
+    search_entry.bind("<Return>", lambda e: self.find_text())
+
+def find_text(self):
+    # Remove previous highlights
+    self.text_widget.tag_remove("search", "1.0", "end")
+    
+    search_term = self.search_var.get()
+    if not search_term:
+        return
+    
+    # Find all occurrences and highlight them
+    start_pos = "1.0"
+    while True:
+        start_pos = self.text_widget.search(search_term, start_pos, stopindex="end", nocase=True)
+        if not start_pos:
+            break
+        end_pos = f"{start_pos}+{len(search_term)}c"
+        self.text_widget.tag_add("search", start_pos, end_pos)
+        start_pos = end_pos
+    
+    # Configure search highlight
+    self.text_widget.tag_config("search", background="yellow", foreground="black")
+```
+
+### Performance Optimization
+- Use `tk.Text` widget with a custom theme rather than `CTkTextbox` for better performance with large documents
+- Implement a debounce mechanism for search to prevent UI freezing during typing
+- Consider implementing a virtual rendering approach where only visible content is fully processed for highlighting
+</info added on 2025-05-20T15:54:22.304Z>
+
+## 3. Develop Chat view with message formatting [done]
+### Dependencies: 5.1
+### Description: Create a Chat view component that presents analysis results in a conversational format with proper styling and formatting.
+### Details:
+1. Design a chat-like interface with message bubbles and clear visual distinction between different message types.
+2. Implement support for markdown rendering within chat messages.
+3. Add styling for code blocks within chat messages with syntax highlighting.
+4. Create a message parser that converts JSON analysis results into a conversational format.
+5. Implement timestamps for messages if applicable.
+6. Ensure proper spacing and alignment of messages for readability.
+7. Test with various message lengths and content types to ensure consistent display.
+
+<info added on 2025-05-20T16:03:52.106Z>
+## Additional Implementation Details for Chat View
+
+### Component Structure
+```python
+class ChatMessageWidget(ctk.CTkFrame):
+    def __init__(self, master, sender, text, timestamp=None, is_user=False, **kwargs):
+        super().__init__(master, **kwargs)
+        
+        # Configure frame appearance based on sender type
+        self.configure(
+            corner_radius=10,
+            fg_color=("#DCF8C6" if is_user else "#FFFFFF") if ctk.get_appearance_mode() == "Light" 
+                     else ("#2A7A4B" if is_user else "#383838")
+        )
+        
+        # Layout setup - right-aligned for user messages, left-aligned for others
+        self.columnconfigure(0, weight=1 if is_user else 0)
+        self.columnconfigure(1, weight=0 if is_user else 1)
+        
+        # Message container with padding
+        self.message_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.message_container.grid(
+            row=0, column=1 if is_user else 0, 
+            sticky="e" if is_user else "w", 
+            padx=10, pady=5
+        )
+```
+
+### Markdown Rendering Implementation
+```python
+def render_markdown(self, text):
+    """Convert markdown text to formatted content for CTkTextbox"""
+    # Basic markdown patterns
+    patterns = [
+        (r'\*\*(.*?)\*\*', 'bold'),       # **bold**
+        (r'\*(.*?)\*', 'italic'),         # *italic*
+        (r'`(.*?)`', 'code'),             # `code`
+        (r'```(.*?)```', 'codeblock', 1)  # ```codeblock```
+    ]
+    
+    # Create text widget with appropriate styling
+    text_widget = ctk.CTkTextbox(self.message_container, wrap="word", height=10)
+    text_widget.configure(state="normal")
+    
+    # Configure tags for styling
+    text_widget.tag_configure("bold", font=ctk.CTkFont(weight="bold"))
+    text_widget.tag_configure("italic", font=ctk.CTkFont(slant="italic"))
+    text_widget.tag_configure("code", font=ctk.CTkFont(family="Courier"), 
+                             background="#f0f0f0", foreground="#333333")
+    text_widget.tag_configure("codeblock", font=ctk.CTkFont(family="Courier"),
+                             background="#f5f5f5", foreground="#333333", 
+                             lmargin1=20, lmargin2=20, rmargin=20)
+    
+    # Process text with regex patterns and insert with appropriate tags
+    # [Implementation details for regex processing]
+    
+    return text_widget
+```
+
+### Code Block Syntax Highlighting
+```python
+def highlight_code(self, code, language=None):
+    """Apply syntax highlighting to code blocks using Pygments"""
+    try:
+        from pygments import highlight
+        from pygments.lexers import get_lexer_by_name, guess_lexer
+        from pygments.formatters import HtmlFormatter
+        
+        # Determine lexer based on language or guess
+        if language and language.strip():
+            lexer = get_lexer_by_name(language.strip().lower())
+        else:
+            lexer = guess_lexer(code)
+            
+        # Generate HTML with syntax highlighting
+        formatter = HtmlFormatter(style='colorful')
+        highlighted_code = highlight(code, lexer, formatter)
+        
+        # Convert HTML to text with tags for CTkTextbox
+        # [Implementation for converting HTML tags to text widget tags]
+        
+        return highlighted_code
+    except Exception as e:
+        # Fallback to plain text if highlighting fails
+        return code
+```
+
+### Message Parser for JSON Analysis Results
+```python
+def parse_analysis_results(json_data):
+    """Convert JSON analysis results to chat message format"""
+    messages = []
+    
+    # Handle different JSON structures based on analysis type
+    if "summary" in json_data:
+        # Add system message with summary
+        messages.append({
+            "sender": "System",
+            "text": f"**Analysis Summary:**\n{json_data['summary']}",
+            "timestamp": datetime.now().strftime("%H:%M")
+        })
+    
+    if "findings" in json_data and isinstance(json_data["findings"], list):
+        # Convert each finding to a message
+        for i, finding in enumerate(json_data["findings"]):
+            messages.append({
+                "sender": "Analysis",
+                "text": f"**Finding {i+1}:** {finding.get('title', '')}\n\n{finding.get('description', '')}",
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
+    
+    # Add code examples if present
+    if "code_examples" in json_data:
+        for example in json_data["code_examples"]:
+            messages.append({
+                "sender": "Code Example",
+                "text": f"**{example.get('title', 'Example')}**\n\n```{example.get('language', '')}\n{example.get('code', '')}\n```",
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
+    
+    return messages
+```
+
+### Auto-Sizing Message Height
+```python
+def adjust_message_height(self, text_widget):
+    """Dynamically adjust the height of text widgets based on content"""
+    # Get text content
+    text_content = text_widget.get("1.0", "end-1c")
+    
+    # Count number of lines
+    num_lines = text_content.count('\n') + 1
+    
+    # Calculate appropriate height (with min and max constraints)
+    line_height = 20  # Approximate height per line in pixels
+    min_height = 40   # Minimum height for any message
+    max_height = 300  # Maximum height before scrolling
+    
+    new_height = max(min_height, min(max_height, num_lines * line_height))
+    
+    # Apply new height
+    text_widget.configure(height=new_height)
+    
+    # Add scrollbar if content exceeds max height
+    if num_lines * line_height > max_height:
+        text_widget.configure(scrollbar_button_color="gray", scrollbar_button_hover_color="darkgray")
+```
+</info added on 2025-05-20T16:03:52.106Z>
+
+## 4. Add copy-to-clipboard and auto-scrolling functionality [done]
+### Dependencies: 5.2, 5.3
+### Description: Implement utility features including copy-to-clipboard for JSON content and auto-scrolling to the latest output when analysis completes.
+### Details:
+1. Add a copy button for the JSON view that copies the entire JSON or selected nodes to clipboard.
+2. Implement a success notification when content is copied.
+3. Create an auto-scroll mechanism that scrolls to the latest output when new analysis results arrive.
+4. Add a manual scroll override to prevent auto-scrolling when user has manually scrolled up.
+5. Implement smooth scrolling animation for better user experience.
+6. Test copy functionality across different browsers.
+7. Verify auto-scrolling works correctly with both small and large outputs.
+
+<info added on 2025-05-20T16:08:11.822Z>
+## Implementation Details
+
+### Copy-to-Clipboard Implementation
+```python
+import pyperclip  # For cross-platform clipboard support
+
+def copy_to_clipboard(self, content=None):
+    """Copy content to clipboard and show notification."""
+    if content is None:
+        # Get all content from the JSON view
+        content = self.json_text.get("1.0", tk.END)
+    
+    pyperclip.copy(content)
+    self.show_copy_notification()
+
+def show_copy_notification(self):
+    """Show a temporary notification that content was copied."""
+    notification = tk.Label(self, text="Copied to clipboard!", 
+                           bg="#4CAF50", fg="white", padx=10, pady=5)
+    notification.place(relx=0.5, rely=0.9, anchor="center")
+    # Auto-destroy after 2 seconds
+    self.after(2000, notification.destroy)
+```
+
+### Auto-Scroll Implementation
+```python
+class OutputDisplay:
+    def __init__(self, parent):
+        # Initialize scroll tracking variables
+        self.user_has_scrolled_up = False
+        self.scroll_notification_visible = False
+        
+        # Bind scroll events to detect manual scrolling
+        self.text_widget.bind("<MouseWheel>", self.on_scroll)
+        self.text_widget.bind("<Button-4>", self.on_scroll)  # Linux scroll up
+        self.text_widget.bind("<Button-5>", self.on_scroll)  # Linux scroll down
+    
+    def on_scroll(self, event):
+        """Detect manual scrolling to disable auto-scroll."""
+        # Get current view position
+        current_view = self.text_widget.yview()
+        
+        # If user scrolled up (not at bottom)
+        if current_view[1] < 1.0:
+            self.user_has_scrolled_up = True
+        else:
+            self.user_has_scrolled_up = False
+            # Hide notification if it exists and we're at bottom
+            if self.scroll_notification_visible:
+                self.hide_scroll_notification()
+    
+    def auto_scroll_to_bottom(self):
+        """Scroll to bottom if user hasn't manually scrolled up."""
+        if not self.user_has_scrolled_up:
+            # Use smooth scrolling with gradual movement
+            self.text_widget.see("end")
+            self.text_widget.update_idletasks()
+        else:
+            # Show notification that new content is available
+            self.show_scroll_notification()
+    
+    def show_scroll_notification(self):
+        """Show a notification with a button to scroll to bottom."""
+        if not self.scroll_notification_visible:
+            self.scroll_frame = tk.Frame(self, bg="#2196F3")
+            self.scroll_button = tk.Button(
+                self.scroll_frame, 
+                text="↓ New content below - Click to view", 
+                command=self.scroll_to_bottom_override,
+                bg="#2196F3", fg="white", bd=0
+            )
+            self.scroll_button.pack(pady=5, padx=5)
+            self.scroll_frame.place(relx=0.5, rely=0.95, anchor="center")
+            self.scroll_notification_visible = True
+    
+    def scroll_to_bottom_override(self):
+        """Force scroll to bottom and reset scroll state."""
+        self.user_has_scrolled_up = False
+        self.text_widget.see("end")
+        self.hide_scroll_notification()
+    
+    def hide_scroll_notification(self):
+        """Hide the scroll notification."""
+        if self.scroll_notification_visible:
+            self.scroll_frame.destroy()
+            self.scroll_notification_visible = False
+```
+
+### Browser Compatibility Testing Notes
+For cross-browser testing of clipboard functionality:
+- Chrome/Edge: Standard clipboard API works well
+- Firefox: Requires user permission for clipboard access
+- Safari: May require user interaction for clipboard operations
+
+Consider implementing a fallback method using document.execCommand('copy') for older browsers.
+</info added on 2025-05-20T16:08:11.822Z>
+
+## 5. Implement error handling and large output management [done]
+### Dependencies: 5.2, 5.3, 5.4
+### Description: Create robust error handling for failed analyses and optimize the display for handling large output volumes.
+### Details:
+1. Design and implement error message components with clear visual indicators.
+2. Create specific error templates for common error types (API failures, parsing errors, etc.).
+3. Implement pagination or virtualization for very large outputs to maintain performance.
+4. Add a 'truncate' option for extremely large JSON objects with an option to view the full content.
+5. Implement graceful degradation for unsupported browsers or devices.
+6. Create unit tests for error scenarios to ensure proper handling.
+7. Test with edge cases like malformed JSON, extremely large outputs, and network failures.
+
+<info added on 2025-05-20T16:17:38.361Z>
+## Initial Implementation Plan for Error Handling and Large Output Management
+
+### 1. Error Message Components & Templates
+
+*   **`src/components/output_display/error_display.py`**:
+    *   Create `ErrorDisplayFrame(ctk.CTkFrame)` to show error messages.
+    *   Layout:
+        *   Icon (⚠️ for error, ℹ️ for info, 🔔 for warning).
+        *   Error title (e.g., "Analysis Failed", "Large Output").
+        *   Detailed error message (scrollable if long).
+        *   Optional "Copy Error Details" button.
+        *   Optional "Retry" button (if applicable).
+*   **Error Templates (`src/utils/error_templates.py`):**
+    *   `format_api_error(error_details)`: Formats API errors (status code, message).
+    *   `format_parsing_error(error_details)`: Formats JSON parsing errors.
+    *   `format_large_output_error(output_size, limit)`: For truncated outputs.
+    *   `format_generic_error(message)`: For other errors.
+*   **Integration in `OutputDisplayFrame`:**
+    *   Method `show_error(template_type, details)` to display formatted errors.
+    *   Method `clear_error()` to hide the error display.
+
+### 2. Large Output Management
+
+*   **JSON View (`src/components/output_display/json_view.py`):**
+    *   **Truncation:**
+        *   Add a `max_display_chars` (e.g., 50,000) or `max_display_lines` limit.
+        *   If output exceeds the limit, truncate it and show a "Content Truncated" message with a "View Full Output" button.
+        *   "View Full Output" could open the content in a new, simple text window or offer to save it to a file.
+    *   **Pagination/Virtualization (More Complex - Phase 2 if simple truncation isn't enough):**
+        *   For extremely large JSON that even truncation struggles with, consider:
+            *   **Pagination:** Display JSON in chunks (e.g., 1000 lines per page).
+            *   **Virtualization:** Only render the visible portion of the JSON tree, dynamically loading more as the user scrolls. This would likely require a more specialized JSON viewer widget or library if `CTkTextbox` becomes too slow.
+*   **Chat View (`src/components/output_display/chat_view.py`):**
+    *   Similar truncation logic for very long chat messages or a large number of messages.
+    *   Display a "Messages Truncated" notice with an option to load more or save the full chat.
+
+### 3. Graceful Degradation (Placeholder - To be detailed if specific issues arise)
+
+*   This will primarily involve ensuring the UI doesn't break completely if a feature (e.g., advanced syntax highlighting) isn't supported by the underlying Tk/Ttk version or platform.
+*   Log warnings for unsupported features.
+
+### 4. Unit Tests
+
+*   **`tests/components/output_display/test_error_display.py`**:
+    *   Test rendering of different error templates.
+    *   Test "Copy Error Details" and "Retry" button functionality (mocking their actions).
+*   **`tests/components/output_display/test_json_view.py`**:
+    *   Test truncation logic with various output sizes.
+    *   Test "View Full Output" functionality.
+*   **`tests/components/output_display/test_chat_view.py`**:
+    *   Test truncation logic for chat messages.
+
+### Plan for Iteration 1:
+
+1.  Implement `ErrorDisplayFrame` and basic error templates for API and parsing errors.
+2.  Integrate error display into the main `OutputDisplayFrame` when an analysis fails (from Task 4 context).
+3.  Implement simple character/line-based truncation in `JsonViewFrame` with a "View Full Output" (e.g., save to file for now).
+4.  Write basic unit tests for the error display and JSON truncation.
+</info added on 2025-05-20T16:17:38.361Z>
+

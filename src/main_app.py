@@ -22,6 +22,7 @@ if __name__ == "__main__" and __package__ is None:
     from src.models.analysis_profile import AnalysisProfile
     from src.components.profile_editor import ProfileEditorWindow
     from src.storage_manager import StorageManager
+    from src.components.output_display import OutputDisplayFrame
     from src.profile_utils import (
         clone_profile, # Still used for duplication logic
         export_profile_utility, # New utility for export UI flow
@@ -33,6 +34,7 @@ else:
     from .models.analysis_profile import AnalysisProfile
     from .components.profile_editor import ProfileEditorWindow
     from .storage_manager import StorageManager
+    from .components.output_display import OutputDisplayFrame
     from .profile_utils import (
         clone_profile, # Still used for duplication logic
         export_profile_utility, # New utility for export UI flow
@@ -115,32 +117,36 @@ class GrokApp(ctk.CTk):
 
         # Configure window
         self.title("Grok - AI Transcript Analysis")
-        self.geometry("900x700")
+        self.geometry("1200x800") # Increased initial size
         ctk.set_appearance_mode("System")  # Use system theme (light/dark)
         ctk.set_default_color_theme("blue") # Default color theme
 
-        # Configure grid layout 
-        self.grid_columnconfigure(0, weight=3) # Transcript column (larger)
-        self.grid_columnconfigure(1, weight=1) # Profile column (smaller)
-        self.grid_rowconfigure(0, weight=0)    # Header row fixed size
-        self.grid_rowconfigure(1, weight=1)    # Main content row expands
+        # Configure grid layout
+        self.grid_columnconfigure(0, weight=1) # Left panel (Transcript)
+        self.grid_columnconfigure(1, weight=1) # Right panel (Profiles & Output)
+        self.grid_rowconfigure(0, weight=0)    # Header row
+        self.grid_rowconfigure(1, weight=1)    # Main content row
         self.grid_rowconfigure(2, weight=0)    # Controls (Process button) row
-        self.grid_rowconfigure(3, weight=0)    # Status/Progress row
-        self.grid_rowconfigure(4, weight=0)    # Error display row
-        self.grid_rowconfigure(5, weight=0)    # Original Bottom bar (char count etc.) row
+        # Removed some rows, will adjust status/error display later if needed within OutputDisplayFrame or a new status bar
 
-        # --- Header --- 
+        # --- Header ---
         self.header_label = ctk.CTkLabel(self, text="Grok Transcript Analysis", font=ctk.CTkFont(size=20, weight="bold"))
-        # Place header in row 0, spanning both columns. Stick to top-left ('nw')
         self.header_label.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="nw")
 
-        # --- Instantiate and Place TranscriptInput Component --- 
+        # --- Transcript Input Panel (Left) ---
         self.transcript_input_component = TranscriptInput(self)
-        self.transcript_input_component.grid(row=1, column=0, padx=20, pady=(0, 5), sticky="nsew")
+        self.transcript_input_component.grid(row=1, column=0, padx=(20,10), pady=(0, 5), sticky="nsew")
 
-        # --- Profile Management Frame (Column 1) ---
-        self.profile_frame = ctk.CTkFrame(self)
-        self.profile_frame.grid(row=1, column=1, sticky="nsew", padx=(10, 20), pady=(0, 5))
+        # --- Right Panel (Profiles and Output) ---
+        self.right_panel_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.right_panel_frame.grid(row=1, column=1, sticky="nsew", padx=(10, 20), pady=(0,5))
+        self.right_panel_frame.grid_rowconfigure(0, weight=1) # Profile management
+        self.right_panel_frame.grid_rowconfigure(1, weight=2) # Output display (more space)
+        self.right_panel_frame.grid_columnconfigure(0, weight=1)
+
+        # --- Profile Management Frame (Inside Right Panel) ---
+        self.profile_frame = ctk.CTkFrame(self.right_panel_frame)
+        self.profile_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         # Configure rows/columns inside the profile frame
         self.profile_frame.grid_columnconfigure(0, weight=1) # Make content fill width
         self.profile_frame.grid_rowconfigure(0, weight=0) # Label row
@@ -148,7 +154,6 @@ class GrokApp(ctk.CTk):
         self.profile_frame.grid_rowconfigure(2, weight=1) # Scrollable frame row expands
         self.profile_frame.grid_rowconfigure(3, weight=0) # Button frame row fixed size
 
-        # Profile section label
         self.profile_label = ctk.CTkLabel(self.profile_frame, text="Analysis Profiles", font=ctk.CTkFont(size=16, weight="bold"))
         self.profile_label.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
 
@@ -179,7 +184,11 @@ class GrokApp(ctk.CTk):
         # --- Setup Profile Control Buttons ---
         self._setup_profile_controls()
 
-        # --- Processing Controls Frame (Row 2) ---
+        # --- Output Display Frame (Inside Right Panel) ---
+        self.output_display_frame = OutputDisplayFrame(self.right_panel_frame)
+        self.output_display_frame.grid(row=1, column=0, sticky="nsew", pady=(10,0))
+
+        # --- Processing Controls Frame (Row 2, spans both columns) ---
         self.controls_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.controls_frame.grid(row=2, column=0, columnspan=2, padx=20, pady=(5,5), sticky="ew")
         self.controls_frame.grid_columnconfigure(0, weight=1) # Center the button
@@ -203,14 +212,14 @@ class GrokApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.status_frame, text="Ready")
         self.status_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
 
-        self.progress_bar = ctk.CTkProgressBar(self.status_frame, width=250) # Increased width
+        self.progress_bar = ctk.CTkProgressBar(self.status_frame, width=250)
         self.progress_bar.grid(row=0, column=1, padx=10, pady=5, sticky="e")
-        self.progress_bar.set(0) # Initial state
-        # self.progress_bar.grid_remove() # Initially hidden, shown during processing
+        self.progress_bar.set(0)
+        self.progress_bar.grid_remove()
 
         self.time_estimate_frame = ctk.CTkFrame(self.status_frame, fg_color="transparent")
         self.time_estimate_frame.grid(row=0, column=2, padx=10, pady=5, sticky="e")
-        # self.time_estimate_frame.grid_remove() # Initially hidden
+        self.time_estimate_frame.grid_remove()
 
         self.time_icon_label = ctk.CTkLabel(self.time_estimate_frame, text="⏱️") # Using an emoji for icon
         self.time_icon_label.grid(row=0, column=0, padx=(0,5), pady=0, sticky="e")
@@ -225,7 +234,7 @@ class GrokApp(ctk.CTk):
             command=self.cancel_analysis_processing
         )
         self.cancel_button.grid(row=0, column=3, padx=10, pady=5, sticky="e")
-        # self.cancel_button.grid_remove() # Initially hidden
+        self.cancel_button.grid_remove()
 
         # --- Error Display Frame (Row 4) ---
         self.error_display_frame = ctk.CTkFrame(self, fg_color=("#FFE6E6", "#5A0000")) # Example error colors
@@ -1047,15 +1056,10 @@ class GrokApp(ctk.CTk):
         self.after(1000, lambda: self._update_progress(0.1, profile_name)) # Start progress simulation
 
     def _update_ui_for_processing_start(self, profile_name):
+        self.logger.info(f"Updating UI for processing start with profile: {profile_name}")
         self.process_button.configure(text="Processing...", state="disabled")
-        self.status_label.configure(text=f"Processing with {profile_name}...")
-        self.progress_bar.configure(mode="indeterminate") # Start as indeterminate
-        self.progress_bar.start()
-        # self.progress_bar.grid() # Ensure it's visible
-        self.cancel_button.grid() # Show cancel button
-        self.time_estimate_frame.grid() # Show time estimate frame
-        self.time_estimate_label.configure(text="Estimating...")
-        self._clear_error_message() # Clear any previous errors
+        self.output_display_frame.show_loading() # Use OutputDisplayFrame's loading
+        self.status_label.configure(text=f"Processing with {profile_name}...") # Keep app status label for now
 
     def _update_progress(self, progress_value, profile_name):
         """Simulate progress updates (will be replaced with actual backend progress)."""
@@ -1078,86 +1082,43 @@ class GrokApp(ctk.CTk):
             self.after(200, lambda: self._handle_analysis_success({"sample_result": "Analysis was successful!"}, profile_name))
 
     def _handle_analysis_success(self, result_data, profile_name):
-        """Handle successful completion of analysis."""
-        self.logger.info(f"Analysis successful for profile: {profile_name}")
         self.is_processing = False
-        self.progress_bar.stop()
-        self.progress_bar.set(1.0)
-        self.status_label.configure(text=f"✔️ Analysis complete: {profile_name}")
-        self.process_button.configure(text="Process Transcript", state="normal") # Re-enable
-        self._check_process_button_state() # Final check on button state
-        self.cancel_button.grid_remove()
-        self.time_estimate_frame.grid_remove()
-        
-        # TODO: Here we'll later add code to display results in the results panel (Task 5)
-        self.logger.debug(f"Result data: {result_data}")
-        # Example: Display a success message box for now
-        # CTkMessagebox(title="Success", message=f"Analysis with '{profile_name}' completed successfully!", icon="check")
+        self.logger.info(f"Analysis successful for profile {profile_name}. Result: {str(result_data)[:100]}...")
+        self.output_display_frame.set_data(result_data) # Show data in OutputDisplayFrame
+        self.status_label.configure(text=f"Analysis complete for {profile_name}")
+        self.process_button.configure(text="Process Transcript", state="normal")
+        self._check_process_button_state() # Re-evaluate button state
 
     def _handle_analysis_failure(self, error_message, error_type="error", is_retryable=True):
-        """Handle analysis failure with appropriate error display."""
-        self.logger.error(f"Analysis failed. Error: {error_message}, Type: {error_type}, Retryable: {is_retryable}")
         self.is_processing = False
-        self.progress_bar.stop()
-        self.progress_bar.set(0)
-        self.status_label.configure(text="❌ Analysis failed. See details below.")
-        self.process_button.configure(text="Process Transcript", state="normal") # Re-enable
-        self._check_process_button_state() # Final check on button state
-        self.cancel_button.grid_remove()
-        self.time_estimate_frame.grid_remove()
-        
-        self.error_message_label.configure(text=str(error_message)) # Ensure message is string
-        
-        if error_type == "warning":
-            self.error_display_frame.configure(fg_color=("#FFFBE6", "#5A5000")) # Light Yellow / Dark Yellow
-            self.error_icon_label.configure(text="⚠️")
-        elif error_type == "info":
-            self.error_display_frame.configure(fg_color=("#E6F4FF", "#003A5A")) # Light Blue / Dark Blue
-            self.error_icon_label.configure(text="ℹ️")
-        else:  # default to error
-            self.error_display_frame.configure(fg_color=("#FFE6E6", "#5A0000")) # Light Red / Dark Red
-            self.error_icon_label.configure(text="❌")
-        
-        if is_retryable:
-            self.retry_button.grid()
-        else:
-            self.retry_button.grid_remove()
-        
-        self.error_display_frame.grid() # Show error display
+        self.logger.error(f"Analysis failed. Error: {error_message}, Type: {error_type}, Retryable: {is_retryable}")
+        self.output_display_frame.show_error(f"{error_type.capitalize()}: {error_message}") # Show error in OutputDisplayFrame
+        self.status_label.configure(text="Analysis failed")
+        self.process_button.configure(text="Process Transcript", state="normal")
+        self._check_process_button_state() # Re-evaluate button state
 
     def cancel_analysis_processing(self):
         """Cancel the ongoing analysis process."""
-        self.logger.info("User initiated cancel processing.")
+        self.logger.info("Analysis processing cancelled by user.")
         if not self.is_processing:
             return
            
         # TODO: Here we'll later add code to signal the backend to stop processing (Task 4)
         
         self.is_processing = False # Crucial to stop simulated progress loops
-        self.progress_bar.stop()
-        self.progress_bar.set(0)
-        self.status_label.configure(text="✖️ Analysis cancelled by user.")
+        self.output_display_frame.hide_loading() # Hide loading in OutputDisplayFrame
+        self.output_display_frame.set_data(None) # Clear any partial data shown
+        self.status_label.configure(text="Analysis cancelled")
         self.process_button.configure(text="Process Transcript", state="normal")
         self._check_process_button_state()
-        self.cancel_button.grid_remove()
-        self.time_estimate_frame.grid_remove()
-        # Optionally show a message box or just update status label
-        # CTkMessagebox(title="Cancelled", message="Analysis processing has been cancelled.", icon="info")
 
     def retry_analysis(self):
-        """Retry the analysis after an error."""
         self.logger.info("Retrying analysis...")
-        self._clear_error_message()
-        # It's important that the Process button is enabled before calling start_analysis_processing
-        # if it relies on the button's state or if start_analysis_processing checks its own conditions.
+        self.output_display_frame.show_loading() # Reset output display to loading
         self.start_analysis_processing()
 
-    def _clear_error_message(self):
-        """Clear and hide the error display."""
-        self.error_display_frame.grid_remove()
-        # Optionally reset status label if it's showing a generic error message
-        if "failed" in self.status_label.cget("text").lower():
-            self.status_label.configure(text="Ready")
+    def _clear_error_message(self): # This might be deprecated if OutputDisplayFrame handles its own errors
+        pass # OutputDisplayFrame manages its own error display.
 
     def run(self):
         """Starts the GrokApp main event loop."""
@@ -1175,7 +1136,6 @@ class GrokApp(ctk.CTk):
     def _update_ui_for_initial_state(self):
         """Sets the initial visibility of UI elements related to processing."""
         self.progress_bar.set(0)
-        # self.progress_bar.grid_remove() # Keep it visible but at 0
         self.cancel_button.grid_remove()
         self.time_estimate_frame.grid_remove()
         self.error_display_frame.grid_remove()
