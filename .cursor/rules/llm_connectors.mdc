@@ -3,3 +3,54 @@ description:
 globs:
 alwaysApply: false
 ---
+- **Implement `LLM_Connector` Interface**
+    - All subclasses **MUST** implement all abstract methods defined in [`src/llm_connector.py`](mdc:src/llm_connector.py).
+    - Ensure method signatures match the interface, including type hints.
+
+- **API Key Handling**
+    - Connectors **MUST** primarily fetch API keys from standard environment variables (e.g., `XAI_API_KEY`, `ANTHROPIC_API_KEY`).
+    - Connectors **MAY** allow overriding the environment variable via a configuration dictionary passed to `initialize`.
+    - An error (e.g., `ValueError`) **MUST** be raised if no API key is found.
+    - Example: See [`src/xai_grok_connector.py#initialize`](mdc:src/xai_grok_connector.py)
+
+- **Initialization**
+    - Use the `__init__` method for setting default parameters (like default model name, temperature).
+    - Use the `initialize(config)` method for final setup, including:
+        - Reading API keys (env var or config).
+        - Instantiating the underlying API client (e.g., `openai.OpenAI`).
+        - Updating parameters based on the `config` dictionary.
+    - `initialize` **MUST** return `True` on success and `False` on failure (e.g., missing API key, client init error).
+    - Example: See [`src/xai_grok_connector.py#__init__`](mdc:src/xai_grok_connector.py) and [`src/xai_grok_connector.py#initialize`](mdc:src/xai_grok_connector.py)
+
+- **Authentication**
+    - The `authenticate()` method **MUST** verify the connector can successfully communicate with the API using the provided credentials.
+    - This can be done via a lightweight API call (e.g., listing available models).
+    - Return `True` on success, `False` on failure. Handle potential API/connection errors gracefully.
+    - Example: See [`src/xai_grok_connector.py#authenticate`](mdc:src/xai_grok_connector.py)
+
+- **Request Sending**
+    - Adapt the `send_request` method signature if the underlying API uses a different pattern (e.g., list of messages vs. single prompt string). Document any deviations clearly.
+    - Encapsulate the logic for calling the specific API endpoint (e.g., `client.chat.completions.create`).
+    - Handle parameter overrides.
+    - Example: See [`src/xai_grok_connector.py#send_request`](mdc:src/xai_grok_connector.py) (Note its adaptation for `messages: List[Dict[str, str]]`).
+
+- **Response Handling**
+    - The `handle_response` method **MUST** process the raw response object returned by the underlying API call (received from `send_request`).
+    - It **MUST** return a standardized dictionary containing at least:
+        - `content`: The main text response (str).
+        - `model`: The model identifier used (str).
+        - `usage`: Token usage details (dict, e.g., `{"prompt_tokens": N, "completion_tokens": M, "total_tokens": P}`).
+        - `raw_response`: The original, unprocessed response object.
+    - Handle potential errors during parsing (e.g., unexpected format, missing keys) and raise an appropriate error (e.g., `ValueError`).
+    - Example: See [`src/xai_grok_connector.py#handle_response`](mdc:src/xai_grok_connector.py)
+
+- **Logging**
+    - Implement informative logging throughout the connector.
+    - Log key events: initialization, authentication success/failure, request sending, response receiving, errors.
+    - Use standard Python `logging` module.
+
+- **Error Handling**
+    - Catch specific exceptions from the underlying API client (e.g., `openai.APIError`, `openai.RateLimitError`).
+    - Catch general exceptions for unexpected issues.
+    - Log errors clearly.
+    - Raise appropriate custom exceptions or re-raise API errors as needed (refer to `error_handling.mdc` if available).

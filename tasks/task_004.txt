@@ -16,3 +16,73 @@
 
 # Test Strategy:
 Test with sample transcripts and profiles, verify correct API call formatting, validate response handling, check error scenarios, and ensure proper result storage.
+
+# Subtasks:
+## 1. Create AnalysisJob and AnalysisResult data models [pending]
+### Dependencies: None
+### Description: Design and implement the data models needed to track analysis state and store results
+### Details:
+1. Create an AnalysisJob model with fields for: id, status (enum: pending, processing, completed, failed), created_at, updated_at, transcript_id (foreign key), profile_id (foreign key), error_message (nullable)
+2. Create an AnalysisResult model with fields for: id, analysis_job_id (foreign key), raw_response (JSON field), parsed_data (JSON field), created_at
+3. Implement model relationships between AnalysisJob, AnalysisResult, Transcript, and Profile
+4. Add appropriate indexes for query performance
+5. Write database migrations
+6. Create basic model tests to verify relationships and constraints
+7. Add model validation rules for required fields
+
+## 2. Implement XaiGrokConnector integration [pending]
+### Dependencies: None
+### Description: Create a service class to handle communication with the Xai Grok API
+### Details:
+1. Create XaiGrokConnector class with configuration for API endpoints and authentication
+2. Implement method to format and validate API request payload
+3. Create send_analysis_request method that handles HTTP communication with Xai Grok API
+4. Add timeout handling and retry logic for API calls
+5. Implement proper error handling for network issues, authentication failures, and API errors
+6. Create mock responses for testing
+7. Write unit tests using mocked API responses
+8. Add detailed logging for API interactions
+
+## 3. Develop core analysis processing function [pending]
+### Dependencies: 4.1, 4.2
+### Description: Implement the main function that processes a transcript using a profile via the API
+### Details:
+1. Create process_transcript_with_profile function that accepts transcript_id and profile_id parameters
+2. Implement logic to create a new AnalysisJob record with pending status
+3. Add function to format transcript text and profile instructions into API-compatible format
+4. Use XaiGrokConnector to send the formatted request to the API
+5. Update AnalysisJob status during processing steps
+6. Implement transaction handling to ensure data consistency
+7. Add comprehensive logging throughout the process
+8. Write unit tests with mocked dependencies
+9. Create integration test covering the full analysis flow
+
+## 4. Implement response parsing and validation [pending]
+### Dependencies: 4.3
+### Description: Create functions to parse, validate and store API responses
+### Details:
+1. Implement parse_analysis_response function to extract relevant data from API response
+2. Add JSON schema validation to ensure response matches expected format
+3. Create logic to transform raw API response into structured data format
+4. Implement error handling for malformed responses
+5. Create function to store parsed results in AnalysisResult model
+6. Add data sanitization to handle potential security issues
+7. Implement validation rules for different analysis types
+8. Write unit tests with various response scenarios (valid, invalid, malformed)
+9. Create utility functions for common parsing operations
+
+## 5. Implement error handling and recovery mechanisms [pending]
+### Dependencies: 4.3, 4.4
+### Description: Create comprehensive error handling for the analysis process
+### Details:
+1. Implement specific error classes for different failure scenarios (APIError, ValidationError, FormatError, etc.)
+2. Create error_handler decorator for analysis functions
+3. Implement logic to update AnalysisJob with appropriate error messages
+4. Add retry mechanism for transient failures
+5. Create notification system for critical errors
+6. Implement logging with appropriate error levels
+7. Add monitoring hooks for operational visibility
+8. Create utility functions for common error handling tasks
+9. Write tests for various error scenarios
+10. Implement cleanup procedures for failed jobs
+

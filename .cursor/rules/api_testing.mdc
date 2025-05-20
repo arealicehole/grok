@@ -3,3 +3,78 @@ description:
 globs:
 alwaysApply: false
 ---
+- **Mock External Dependencies**
+    - **NEVER** let unit tests make actual external API calls.
+    - Use `unittest.mock.patch` or dependency injection to replace the external API client (e.g., `openai.OpenAI`) with a mock object, typically `unittest.mock.MagicMock`.
+    - Example Patching:
+      ```python
+      from unittest.mock import patch, MagicMock
+      from src.my_api_module import ApiWrapper
+      
+      @patch('src.my_api_module.ExternalApiClient')
+      def test_api_call(mock_api_client_class):
+          mock_instance = MagicMock()
+          mock_instance.make_request.return_value = {"status": "success"}
+          mock_api_client_class.return_value = mock_instance
+          
+          wrapper = ApiWrapper()
+          result = wrapper.call_endpoint()
+          
+          assert result == {"status": "success"}
+          mock_instance.make_request.assert_called_once_with(expected_args)
+      ```
+
+- **Use Pytest Fixtures for Mock Setup**
+    - For complex mock setups (like mocking multiple methods of an API client), define a `pytest` fixture.
+    - This promotes reusability and keeps test functions cleaner.
+    - Example Fixture:
+      ```python
+      import pytest
+      from unittest.mock import MagicMock
+      from openai import OpenAI # Assuming this is the client
+      # Import necessary response types
+      from openai.types.chat import ChatCompletion 
+      from openai.types.models import ModelsPage
+      
+      @pytest.fixture
+      def mock_openai_client():
+          mock_client = MagicMock(spec=OpenAI)
+          
+          # Mock models.list() response
+          mock_models_page = MagicMock(spec=ModelsPage)
+          # ... configure mock_models_page ...
+          mock_client.models.list.return_value = mock_models_page
+      
+          # Mock chat.completions.create() response
+          mock_completion = MagicMock(spec=ChatCompletion)
+          # ... configure mock_completion ...
+          mock_client.chat.completions.create.return_value = mock_completion
+          
+          return mock_client
+      
+      # Usage in test:
+      def test_something(mock_openai_client):
+           # mock_openai_client is the configured MagicMock
+           connector = MyConnector()
+           connector.client = mock_openai_client # Inject mock
+           # ... rest of test ...
+      ```
+    - Reference: See [`tests/test_xai_grok_connector.py`](mdc:tests/test_xai_grok_connector.py) for a detailed example.
+
+- **Test Success Cases**
+    - Verify that the class under test correctly calls the mocked API client methods with the expected arguments.
+    - Verify that the class correctly processes the successful mock response returned by the client.
+    - Example: See [`tests/test_xai_grok_connector.py#test_send_request_success`](mdc:tests/test_xai_grok_connector.py)
+
+- **Test Failure Cases**
+    - **API Errors:** Configure the mock client method to raise specific API exceptions (e.g., `openai.APIError`, `openai.RateLimitError`, `openai.APIConnectionError`). Verify that the class under test handles these exceptions correctly (e.g., logs the error, raises a custom exception, returns an error state).
+    - **Connection Errors:** Test scenarios where the connection fails (e.g., raise `openai.APIConnectionError`).
+    - **Invalid Input:** Test how the class handles invalid input parameters before attempting an API call (e.g., raises `ValueError`).
+    - **Invalid Response:** Configure the mock client to return malformed or unexpected response data. Verify that the class handles response parsing errors gracefully (e.g., logs the error, raises `ValueError`).
+    - **Unexpected Exceptions:** Configure the mock client to raise a generic `Exception`. Verify that the class has a fallback handler.
+    - Use `pytest.raises` to assert that the expected exceptions are raised.
+    - Use the `caplog` fixture from `pytest` to assert that appropriate error messages are logged.
+    - Example: See failure tests in [`tests/test_xai_grok_connector.py`](mdc:tests/test_xai_grok_connector.py) (e.g., `test_authenticate_failure_api_error`, `test_handle_response_failure_missing_choices`).
+
+- **Coverage**
+    - Aim for high test coverage for code interacting with external APIs, focusing particularly on error handling paths.

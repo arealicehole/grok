@@ -130,39 +130,80 @@ class ProfileRepository:
 
     @handle_db_errors("ensure_table_exists")
     def _ensure_table_exists(self):
-        """Ensures the 'profiles' table exists in the database."""
+        """Ensures the 'profiles' table exists and has the necessary columns (including 'order')."""
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS profiles (
-            id TEXT PRIMARY KEY,
+            id TEXT PRIMARY KEY NOT NULL,
             name TEXT UNIQUE NOT NULL,
             instructions TEXT,
-            schema_definition TEXT NOT NULL, -- Stored as JSON string
-            created_at TEXT NOT NULL,      -- ISO format string
-            updated_at TEXT NOT NULL       -- ISO format string
+            schema_definition TEXT NOT NULL, -- Stored as string
+            "order" INTEGER,                 -- Added order column
+            created_at TEXT NOT NULL,        -- ISO format string
+            updated_at TEXT NOT NULL,         -- ISO format string
+            last_used_timestamp TEXT,        -- ISO format string, NULLABLE
+            usage_count INTEGER DEFAULT 0    -- Default to 0, NOT NULL
         );
         """
-        create_name_index_sql = "CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name);"
+        # Add UNIQUE constraint for ID if not using AUTOINCREMENT
+        # create_id_index_sql = "CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_id ON profiles(id);"
+        create_name_index_sql = "CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name);"
         create_updated_at_index_sql = "CREATE INDEX IF NOT EXISTS idx_profiles_updated_at ON profiles(updated_at);"
+        # Don't create order index here yet
         
         with self._get_connection() as conn:
             conn.execute(create_table_sql)
+            # conn.execute(create_id_index_sql) # Only if ID is not PRIMARY KEY AUTOINCREMENT
             conn.execute(create_name_index_sql)
             conn.execute(create_updated_at_index_sql)
+            # conn.execute(create_order_index_sql) # Moved below
+            
+            # --- Check and add 'order' column if missing --- 
+            cursor = conn.execute("PRAGMA table_info(profiles);")
+            columns = [column['name'] for column in cursor.fetchall()]
+            
+            if 'order' not in columns:
+                self.logger.info("Adding missing 'order' column to 'profiles' table.")
+                conn.execute('ALTER TABLE profiles ADD COLUMN "order" INTEGER;')
+                # Also create the index now that the column exists
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_order ON profiles(\"order\");")
+            # --- End check ---
+            
+            # --- Check and add 'last_used_timestamp' and 'usage_count' columns if missing ---
+            if 'last_used_timestamp' not in columns:
+                self.logger.info("Adding missing 'last_used_timestamp' column to 'profiles' table.")
+                conn.execute('ALTER TABLE profiles ADD COLUMN last_used_timestamp TEXT;')
+            if 'usage_count' not in columns:
+                self.logger.info("Adding missing 'usage_count' column to 'profiles' table.")
+                conn.execute('ALTER TABLE profiles ADD COLUMN usage_count INTEGER DEFAULT 0;')
+            # --- End check ---
+            
             conn.commit()
-        self.logger.info(f"Ensured 'profiles' table exists in {self.db_path}")
+        # Updated log message
+        self.logger.info(f"Ensured 'profiles' table exists and includes 'order', 'last_used_timestamp', and 'usage_count' columns in {self.db_path}")
 
-    def _serialize_profile(self, profile: AnalysisProfile) -> Tuple[str, str, Optional[str], str, str, str]:
+    def _serialize_profile(self, profile: AnalysisProfile) -> Tuple[Optional[str], str, Optional[str], str, Optional[int], str, str, Optional[str], int]:
         """Converts an AnalysisProfile object into a tuple for database insertion/update."""
         if not isinstance(profile, AnalysisProfile):
              raise TypeError("Input must be an AnalysisProfile object")
         
+        # Timestamps are already ISO strings in the model
+        created_at_iso = profile.created_at
+        updated_at_iso = profile.updated_at
+        last_used_ts_iso = profile.last_used_timestamp # This is already Optional[str]
+        
+        # Schema definition is already a string
+        schema_def_str = profile.schema_definition or ""
+
         return (
-            str(profile.id),
+            str(profile.id) if profile.id else None, # ID is string UUID
             profile.name,
             profile.instructions,
-            json.dumps(profile.schema_definition or {}), # Ensure valid JSON
-            profile.created_at.isoformat(),
-            profile.updated_at.isoformat()
+            schema_def_str, # Use the string directly
+            profile.order, # Include order (Optional[int])
+            created_at_iso,
+            updated_at_iso,
+            last_used_ts_iso,
+            profile.usage_count
         )
 
     def _deserialize_profile(self, row: sqlite3.Row) -> AnalysisProfile:
@@ -170,34 +211,44 @@ class ProfileRepository:
         if not isinstance(row, sqlite3.Row):
              raise TypeError("Input must be a sqlite3.Row object")
              
+        # --- ADD LOGGING FOR RAW ID --- 
+        raw_id = row["id"]
+        self.logger.debug(f"_deserialize_profile: Raw row['id'] = {repr(raw_id)}, Type = {type(raw_id)}")
+        # ------------------------------
+        
         profile_id = row["id"] # Get ID for logging context
         try:
-            schema_def = json.loads(row["schema_definition"]) if row["schema_definition"] else {}
-        except json.JSONDecodeError as e:
-            # Log the error and raise a specific exception indicating data corruption
-            self.logger.error(f"JSON decode error for schema_definition in profile ID {profile_id}: {e}")
-            raise ProfileCorruptionError(f"Failed to decode schema for profile {profile_id}. Data may be corrupt.") from e
+            # Schema definition is stored as string
+            schema_def = row["schema_definition"] or ""
         except Exception as e: # Catch unexpected errors during deserialization
-            self.logger.error(f"Unexpected error deserializing profile ID {profile_id}: {e}", exc_info=True)
+            self.logger.error(f"Unexpected error deserializing schema for profile ID {profile_id}: {e}", exc_info=True)
             raise ProfileStorageError(f"Failed to deserialize profile {profile_id}") from e
 
-        # Convert timestamps safely
-        try:
-             created_at = datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None
-             updated_at = datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None
-             if created_at is None or updated_at is None:
-                 raise ValueError("Missing timestamp data")
-        except (TypeError, ValueError) as e:
-             self.logger.error(f"Timestamp conversion error for profile ID {profile_id}: {e}")
-             raise ProfileCorruptionError(f"Invalid timestamp format for profile {profile_id}. Data may be corrupt.") from e
+        # Timestamps are stored as ISO strings
+        created_at_iso = row["created_at"]
+        updated_at_iso = row["updated_at"]
+
+        # Get order, could be None
+        profile_order = row["order"]
+
+        # Get last_used_timestamp and usage_count, could be None/default
+        last_used_ts = row["last_used_timestamp"] if "last_used_timestamp" in row.keys() else None
+        usage_count = row["usage_count"] if "usage_count" in row.keys() else 0
+
+        if not created_at_iso or not updated_at_iso:
+             self.logger.error(f"Missing timestamp data for profile ID {profile_id}")
+             raise ProfileCorruptionError(f"Missing timestamp data for profile {profile_id}. Data may be corrupt.")
 
         return AnalysisProfile(
-            id=profile_id,
+            id=profile_id, # ID is now INTEGER
             name=row["name"],
             instructions=row["instructions"],
-            schema_definition=schema_def,
-            created_at=created_at,
-            updated_at=updated_at
+            schema_definition=schema_def, # Use the string directly
+            order=profile_order, # Assign order
+            created_at=created_at_iso, # Use ISO string
+            updated_at=updated_at_iso, # Use ISO string
+            last_used_timestamp=last_used_ts,
+            usage_count=usage_count
         )
 
     # --- Validation Orchestrator ---
@@ -205,7 +256,7 @@ class ProfileRepository:
         """Runs all validations for an Analysis Profile instance."""
         full_result = ValidationResult()
 
-        # Check name uniqueness
+        # Check name uniqueness using get_profile_by_name
         try:
              existing_profile_with_name = self.get_profile_by_name(profile.name)
         except ProfileNotFoundError:
@@ -243,86 +294,107 @@ class ProfileRepository:
 
         return full_result
 
-    # --- CRUD Methods will be added below ---
+    @handle_db_errors("get_max_order")
+    def _get_max_order(self) -> int:
+        """Gets the maximum order value from the profiles table."""
+        query = "SELECT MAX(\"order\") FROM profiles"
+        with self._get_connection() as conn:
+            cursor = conn.execute(query)
+            result = cursor.fetchone()
+            return result[0] if result and result[0] is not None else -1
 
     @handle_db_errors("create_profile")
     def create_profile(self, profile: AnalysisProfile) -> AnalysisProfile:
-        """Inserts a new profile into the database after validation."""
-        insert_sql = "INSERT INTO profiles (id, name, instructions, schema_definition, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-        
-        # Ensure created_at and updated_at are set
-        now = datetime.now(timezone.utc)
-        profile.created_at = profile.created_at or now
-        profile.updated_at = profile.updated_at or profile.created_at
-        profile.id = profile.id or str(uuid.uuid4()) # Ensure ID exists
-
-        # --- Perform Validation ---
+        """
+        Creates a new profile in the database.
+        Ensures a unique ID is assigned if not provided.
+        Sets created_at and updated_at timestamps.
+        The 'order' field is set to the next available order value.
+        Sets last_used_timestamp to None and usage_count to 0 initially.
+        """
         validation_result = self._validate_profile_data(profile, is_update=False)
-        if not validation_result:
-            self.logger.warning(f"Validation failed for creating profile '{profile.name}': {validation_result}")
-            raise ProfileValidationError(f"Validation failed for profile '{profile.name}'", validation_result=validation_result)
-        # ------------------------
+        if not validation_result.is_valid:
+            self.logger.error(f"Validation failed for creating profile '{profile.name}': {validation_result.errors_to_string()}")
+            raise ProfileValidationError(f"Validation failed: {validation_result.errors_to_string()}")
 
-        # --- Apply Sanitization ---
-        profile.name = sanitize_string(profile.name)
-        profile.instructions = sanitize_string(profile.instructions)
-        # Note: Schema sanitization might need a deeper approach depending on content
-        # -------------------------
+        # Ensure ID is a string (UUID)
+        if profile.id is None: # Should be if it's truly new
+            profile.id = str(uuid.uuid4())
+        elif not isinstance(profile.id, str):
+             profile.id = str(profile.id)
 
-        try:
-            profile_tuple = self._serialize_profile(profile)
-        except TypeError as e:
-             self.logger.error(f"Serialization error for profile {profile.id}: {e}")
-             raise ValueError(f"Invalid profile data provided: {e}") from e
-             
-        try:
-            with self._get_connection() as conn:
-                conn.execute(insert_sql, profile_tuple)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        profile.created_at = now_iso
+        profile.updated_at = now_iso
+        
+        # Initialize last_used_timestamp and usage_count for new profiles
+        profile.last_used_timestamp = None
+        profile.usage_count = 0
+
+        # Assign order if not explicitly set
+        if profile.order is None:
+            max_order = self._get_max_order()
+            profile.order = max_order + 1
+        
+        # ID from AnalysisProfile is int, but stored as TEXT in DB
+        # Convert to string for query if it's int
+        profile_id_str = str(profile.id) if isinstance(profile.id, int) else profile.id
+
+        sql = """
+        INSERT INTO profiles (id, name, instructions, schema_definition, "order", created_at, updated_at, last_used_timestamp, usage_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        
+        serialized_values = self._serialize_profile(profile)
+        # Ensure the ID in serialized_values is the string version we determined
+        final_serialized_values = (profile_id_str,) + serialized_values[1:]
+
+        with self._get_connection() as conn:
+            try:
+                conn.execute(sql, final_serialized_values)
                 conn.commit()
-            self.logger.info(f"Successfully created profile ID: {profile.id}, Name: {profile.name}")
-            return profile
-        except sqlite3.IntegrityError as e:
-            self.logger.warning(f"Failed to create profile due to IntegrityError: {e}")
-            # Check if it's a name or ID conflict
-            if "UNIQUE constraint failed: profiles.name" in str(e):
-                raise ProfileDuplicateError(f"Profile with name '{profile.name}' already exists.") from e
-            elif "UNIQUE constraint failed: profiles.id" in str(e):
-                raise ProfileDuplicateError(f"Profile with ID '{profile.id}' already exists (collision). Regenerate ID.") from e
-            else:
-                # Other integrity errors (e.g., NOT NULL constraint if schema changes)
-                 raise ProfileStorageError(f"Database integrity error: {e}") from e
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error while creating profile {profile.id}: {e}")
-            raise ProfileStorageError(f"Failed to create profile in database: {e}") from e
+                self.logger.info(f"Profile '{profile.name}' (ID: {profile.id}) created successfully with order {profile.order}.")
+                return profile 
+            except sqlite3.IntegrityError as e:
+                conn.rollback()
+                # This primarily catches UNIQUE constraint violations (name, id)
+                self.logger.error(f"Failed to create profile '{profile.name}' due to integrity error: {e}", exc_info=False) # exc_info=False for cleaner log
+                if "UNIQUE constraint failed: profiles.name" in str(e):
+                    raise ProfileValidationError(f"Profile name '{profile.name}' already exists.")
+                elif "UNIQUE constraint failed: profiles.id" in str(e): # Less likely if UUIDs are used correctly
+                    raise ProfileDatabaseError(f"Profile ID '{profile.id}' already exists. This should not happen with UUIDs.")
+                else:
+                    raise ProfileDatabaseError(f"Database integrity error for profile '{profile.name}': {e}") from e
+            except Exception as e: # Catch other potential errors during execution or commit
+                conn.rollback()
+                self.logger.error(f"An unexpected error occurred creating profile '{profile.name}': {e}", exc_info=True)
+                raise ProfileStorageError(f"Could not create profile '{profile.name}'.") from e
 
     @handle_db_errors("get_profile_by_id")
-    def get_profile_by_id(self, profile_id: str) -> Optional[AnalysisProfile]:
-        """Retrieves a profile by its unique ID."""
+    def get_profile_by_id(self, profile_id_str: str) -> Optional[AnalysisProfile]:
+        """Retrieves a profile by its unique ID (UUID string)."""
         select_sql = "SELECT * FROM profiles WHERE id = ?"
         
-        if not profile_id:
-             raise ValueError("Profile ID cannot be empty")
-             
+        # Validate if the input string is a valid UUID format
         try:
-            # Validate if the profile_id looks like a UUID, though the DB stores it as TEXT
-            # uuid.UUID(profile_id) # Uncomment if strict UUID format is required for input
-            pass
+            uuid.UUID(profile_id_str)
         except ValueError:
-             raise ValueError("Invalid Profile ID format. Expected UUID string.")
+            raise ValueError(f"Invalid UUID format for profile ID: '{profile_id_str}'")
 
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(select_sql, (profile_id,))
+                cursor = conn.execute(select_sql, (profile_id_str,))
                 row = cursor.fetchone()
             
             if row:
-                self.logger.debug(f"Retrieved profile by ID: {profile_id}")
+                self.logger.debug(f"Retrieved profile by ID: {profile_id_str}")
                 return self._deserialize_profile(row)
             else:
-                self.logger.debug(f"No profile found with ID: {profile_id}")
-                return None
+                self.logger.debug(f"No profile found with ID: {profile_id_str}")
+                # Raise not found instead of returning None for get_by_id
+                raise ProfileNotFoundError(f"Profile with ID {profile_id_str} not found.")
         except sqlite3.Error as e:
-            self.logger.error(f"Database error while retrieving profile by ID '{profile_id}': {e}")
+            self.logger.error(f"Database error while retrieving profile by ID {profile_id_str}: {e}")
             raise ProfileStorageError(f"Failed to retrieve profile by ID: {e}") from e
 
     @handle_db_errors("get_profile_by_name")
@@ -349,16 +421,16 @@ class ProfileRepository:
             raise ProfileStorageError(f"Failed to retrieve profile by name: {e}") from e
 
     @handle_db_errors("get_all_profiles")
-    def get_all_profiles(self, filters: Optional[Dict] = None, page: int = 1, page_size: int = 20, sort_by: str = 'name', sort_order: str = 'ASC') -> List[AnalysisProfile]:
+    def get_all_profiles(self, filters: Optional[Dict] = None, page: int = 1, page_size: int = 20, sort_by: str = 'order', sort_order: str = 'ASC') -> List[AnalysisProfile]:
         """
-        Retrieves a list of profiles, supporting filtering and pagination.
+        Retrieves a list of profiles, supporting filtering, pagination, and sorting.
 
         Args:
             filters: Optional dictionary for filtering profiles.
                      Supported filters: 'name' (partial match), 'created_after' (ISO date string)
             page: Page number for pagination (1-indexed).
             page_size: Number of profiles per page.
-            sort_by: Field to sort by (e.g., 'name', 'created_at', 'updated_at'). Default 'name'.
+            sort_by: Field to sort by (e.g., 'name', 'created_at', 'updated_at', 'order'). Default 'order'.
             sort_order: Sort order ('ASC' or 'DESC'). Default 'ASC'.
 
         Returns:
@@ -387,13 +459,15 @@ class ProfileRepository:
             query += " WHERE " + " AND ".join(where_clauses)
 
         # Sorting
-        allowed_sort_fields = ['name', 'created_at', 'updated_at']
+        allowed_sort_fields = ['name', 'created_at', 'updated_at', 'order'] # Added 'order'
+        sort_field_sql = '"order"' if sort_by == 'order' else sort_by # Quote 'order'
+        
         if sort_by not in allowed_sort_fields:
-            self.logger.warning(f"Invalid sort_by field: {sort_by}. Defaulting to 'name'.")
-            sort_by = 'name'
+            self.logger.warning(f"Invalid sort_by field: {sort_by}. Defaulting to 'order'.")
+            sort_field_sql = '"order"'
             
         order = 'ASC' if sort_order.upper() == 'ASC' else 'DESC' # Default to ASC if invalid
-        query += f" ORDER BY {sort_by} {order}" 
+        query += f" ORDER BY {sort_field_sql} {order}" 
 
         # Pagination
         if page < 1:
@@ -415,12 +489,12 @@ class ProfileRepository:
             for row in rows:
                 try:
                      profiles.append(self._deserialize_profile(row))
-                except (TypeError, json.JSONDecodeError, ValueError) as deser_error:
+                except (TypeError, json.JSONDecodeError, ValueError, ProfileCorruptionError) as deser_error:
                      # Log error for the specific row but continue processing others
                      self.logger.error(f"Failed to deserialize profile row ID {row.get('id', 'N/A')}: {deser_error}")
                      # Optionally, you could add a placeholder or skip the problematic row
 
-            self.logger.info(f"Retrieved {len(profiles)} profiles (Page {page}, Size {page_size}) with filters: {filters}")
+            self.logger.info(f"Retrieved {len(profiles)} profiles (Page {page}, Size {page_size}) with filters: {filters}, sorted by {sort_field_sql} {order}")
             return profiles
         except sqlite3.Error as e:
             self.logger.error(f"Database error while retrieving profiles: {e}")
@@ -428,149 +502,205 @@ class ProfileRepository:
 
     @handle_db_errors("update_profile")
     def update_profile(self, profile: AnalysisProfile) -> AnalysisProfile:
-        """Updates an existing profile in the database after validation."""
-        update_sql = """
-        UPDATE profiles 
-        SET name = ?, instructions = ?, schema_definition = ?, updated_at = ?
-        WHERE id = ?
-        """
+        """Updates an existing profile in the database. ID must be set."""
+        if profile.id is None:
+            self.logger.error("Attempted to update profile with no ID.")
+            raise ProfileValidationError("Profile ID is required for an update.")
 
-        # Ensure updated_at is set
-        profile.updated_at = datetime.now(timezone.utc)
-
-        # --- Perform Validation ---
-        # Ensure the profile we are trying to update actually exists first
-        existing_profile = self.get_profile_by_id(profile.id)
-        if not existing_profile:
-             raise ProfileNotFoundError(f"Profile with ID '{profile.id}' not found, cannot update.")
-
+        # Validate before updating
         validation_result = self._validate_profile_data(profile, is_update=True)
-        if not validation_result:
-            self.logger.warning(f"Validation failed for updating profile '{profile.name}' (ID: {profile.id}): {validation_result}")
-            raise ProfileValidationError(f"Validation failed for profile '{profile.name}'", validation_result=validation_result)
-        # ------------------------
-
-        # --- Apply Sanitization ---
-        profile.name = sanitize_string(profile.name)
-        profile.instructions = sanitize_string(profile.instructions)
-        # Note: Schema sanitization might need a deeper approach depending on content
-        # -------------------------
+        if not validation_result.is_valid:
+            self.logger.error(f"Validation failed for updating profile ID '{profile.id}': {validation_result.errors_to_string()}")
+            raise ProfileValidationError(f"Validation failed: {validation_result.errors_to_string()}")
         
-        try:
-             # We only update specific fields, don't re-serialize the whole object initially
-             schema_json = json.dumps(profile.schema_definition or {})
-             update_tuple = (
-                 profile.name,
-                 profile.instructions,
-                 schema_json,
-                 profile.updated_at.isoformat(),
-                 profile.id
-             )
-        except (TypeError, json.JSONDecodeError) as e:
-             self.logger.error(f"Serialization/Schema error during update prep for profile {profile.id}: {e}")
-             raise ValueError(f"Invalid profile data for update: {e}") from e
+        profile.updated_at = datetime.now(timezone.utc).isoformat()
+        
+        # Ensure ID is string for query
+        profile_id_str = str(profile.id) if isinstance(profile.id, int) else profile.id
 
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(update_sql, update_tuple)
-                if cursor.rowcount == 0:
-                    # This should ideally not happen if get_profile_by_id check passed, but good to have
-                    raise ProfileNotFoundError(f"Profile with ID '{profile.id}' not found during update operation.")
+        sql = """
+        UPDATE profiles 
+        SET name = ?, instructions = ?, schema_definition = ?, "order" = ?, created_at = ?, updated_at = ?, last_used_timestamp = ?, usage_count = ?
+        WHERE id = ?;
+        """
+        
+        # _serialize_profile returns ID as first element, but we need it last for WHERE clause
+        serialized_tuple = self._serialize_profile(profile)
+        # (id, name, instructions, schema, order, created_at, updated_at, last_used_ts, usage_count)
+        # We need: (name, instructions, schema, order, created_at, updated_at, last_used_ts, usage_count, id)
+        
+        params_for_update = serialized_tuple[1:] + (profile_id_str,)
+
+        with self._get_connection() as conn:
+            try:
+                cursor = conn.execute(sql, params_for_update)
                 conn.commit()
-            self.logger.info(f"Successfully updated profile ID: {profile.id}, Name: {profile.name}")
-            # Return the updated profile object passed in (already modified)
-            return profile 
-        except sqlite3.IntegrityError as e:
-             # This primarily catches name conflicts if another profile took the name
-             # between the validation check and the update commit.
-             self.logger.warning(f"Failed to update profile {profile.id} due to IntegrityError: {e}")
-             if "UNIQUE constraint failed: profiles.name" in str(e):
-                 raise ProfileDuplicateError(f"Profile name '{profile.name}' is already taken by another profile.") from e
-             else:
-                 raise ProfileStorageError(f"Database integrity error during update: {e}") from e
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error while updating profile {profile.id}: {e}")
-            raise ProfileStorageError(f"Failed to update profile in database: {e}") from e
+                
+                if cursor.rowcount == 0:
+                    self.logger.warning(f"Attempted to update profile ID '{profile.id}', but no rows were affected (profile not found).")
+                    raise ProfileNotFoundError(f"Profile with ID '{profile.id}' not found for update.")
+                
+                self.logger.info(f"Profile '{profile.name}' (ID: {profile.id}) updated successfully.")
+                return profile
+            except sqlite3.IntegrityError as e:
+                conn.rollback()
+                self.logger.error(f"Integrity error updating profile ID '{profile.id}': {e}", exc_info=False)
+                if "UNIQUE constraint failed: profiles.name" in str(e):
+                    raise ProfileValidationError(f"Profile name '{profile.name}' already exists (conflict with another profile).")
+                else:
+                    raise ProfileDatabaseError(f"Database integrity error updating profile '{profile.name}': {e}") from e
+            except Exception as e:
+                conn.rollback()
+                self.logger.error(f"An unexpected error occurred updating profile ID '{profile.id}': {e}", exc_info=True)
+                raise ProfileStorageError(f"Could not update profile '{profile.name}'.") from e
 
     @handle_db_errors("delete_profile")
-    def delete_profile(self, profile_id: str) -> bool:
-        """Deletes a profile by its ID."""
+    def delete_profile(self, profile_id_str: str) -> bool:
+        """Deletes a profile by its ID. ID should be a string."""
         delete_sql = "DELETE FROM profiles WHERE id = ?"
         
-        if not profile_id:
-             raise ValueError("Profile ID cannot be empty")
+        # Validate UUID format
+        try:
+            uuid.UUID(profile_id_str)
+        except ValueError:
+            raise ValueError(f"Invalid UUID format for profile ID: '{profile_id_str}'")
 
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(delete_sql, (profile_id,))
+                cursor = conn.execute(delete_sql, (profile_id_str,))
                 conn.commit()
             
             if cursor.rowcount == 0:
-                # No rows were deleted, meaning the profile ID didn't exist
-                self.logger.warning(f"Attempted to delete non-existent profile with ID: {profile_id}")
-                raise ProfileNotFoundError(f"Profile with ID '{profile_id}' not found, cannot delete.")
+                # No rows deleted
+                self.logger.warning(f"Attempted to delete non-existent profile with ID: {profile_id_str}")
+                raise ProfileNotFoundError(f"Profile with ID {profile_id_str} not found, cannot delete.")
             else:
-                self.logger.info(f"Successfully deleted profile with ID: {profile_id}")
+                self.logger.info(f"Successfully deleted profile with ID: {profile_id_str}")
                 return True
                 
         except sqlite3.Error as e:
-            self.logger.error(f"Database error while deleting profile ID '{profile_id}': {e}")
+            self.logger.error(f"Database error while deleting profile ID {profile_id_str}: {e}")
             raise ProfileStorageError(f"Failed to delete profile: {e}") from e
+
+    @handle_db_errors("update_profiles_order")
+    def update_profiles_order(self, updates: List[Tuple[int, int]]) -> bool:
+        """ 
+        Updates the order for multiple profiles in a single transaction.
+
+        Args:
+            updates: A list of tuples, where each tuple is (profile_id, new_order).
+
+        Returns:
+            True if the update was successful, False otherwise.
+            
+        Raises:
+            ValueError: If the updates list is empty or contains invalid data.
+            ProfileStorageError: If a database error occurs.
+        """
+        if not updates:
+            self.logger.warning("update_profiles_order called with empty updates list.")
+            return True # Nothing to do, technically successful
+            
+        update_sql = "UPDATE profiles SET \"order\" = ? WHERE id = ?"
+        update_params = []
+        
+        # Validate input data structure
+        for item in updates:
+            is_valid_format = False
+            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], int):
+                try:
+                    # Check if the first element is a valid UUID string
+                    uuid.UUID(str(item[0]))
+                    is_valid_format = True
+                except ValueError:
+                    pass # Not a valid UUID string
+
+            if not is_valid_format:
+                self.logger.error(f"Invalid update item format detected: {item}")
+                raise ValueError("Invalid update item format. Expected list of (valid_uuid_string_id, int_order) tuples.")
+
+            update_params.append((item[1], item[0])) # SQL needs (order, id)
+        
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor() # Get a cursor for executemany
+                # Execute updates in a transaction
+                cursor.executemany(update_sql, update_params)
+                updated_rows = cursor.rowcount
+                conn.commit()
+            
+            if updated_rows != len(updates):
+                 self.logger.warning(f"Expected to update {len(updates)} profiles order, but affected {updated_rows} rows. Some IDs might not exist.")
+                 # Decide if this is a partial success or failure. Let's consider it potentially problematic.
+                 # Returning False might be safer, or raise a specific warning/error.
+                 # For now, log warning and return True assuming non-existent IDs are acceptable.
+                 
+            self.logger.info(f"Successfully updated order for {updated_rows} profiles.")
+            return True
+            
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error while updating profile orders: {e}", exc_info=True)
+            raise ProfileStorageError(f"Failed to update profile orders: {e}") from e
+        except Exception as e:
+             self.logger.error(f"Unexpected error during profile order update: {e}", exc_info=True)
+             raise
 
     # --- High-Level Save/Load Methods (Task 2.4) ---
 
     def save_profile(self, profile: AnalysisProfile) -> AnalysisProfile:
         """
-        Saves a profile to the database. Handles both creating new profiles
+        Saves a profile to the database. Handles creating new profiles (with auto ID and order)
         and updating existing ones based on the profile ID.
 
         Args:
             profile: The AnalysisProfile object to save.
 
         Returns:
-            The saved AnalysisProfile object (potentially with updated timestamps).
+            The saved AnalysisProfile object (with assigned ID/order if new, updated timestamps).
 
         Raises:
-            ValueError: If the profile data is invalid.
-            ProfileDuplicateError: If trying to create a profile with a name
-                                   that already exists, or if an ID collision occurs.
+            ValueError: If the profile object is invalid or if trying to update without a valid ID.
+            ProfileDuplicateError: If trying to create a profile with a name that already exists.
+            ProfileNotFoundError: If trying to update a profile ID that doesn't exist.
             ProfileStorageError: If a database error occurs.
+            ProfileValidationError: If validation fails.
         """
         if not profile or not isinstance(profile, AnalysisProfile):
             raise ValueError("Invalid AnalysisProfile object provided.")
 
-        # Ensure ID is set for potential update
-        if not profile.id:
-            profile.id = str(uuid.uuid4())
-            is_new = True
-            self.logger.debug(f"Generated new ID for profile: {profile.id}")
-        else:
-            # Check if ID exists to determine if it's an update or creation attempt with existing ID
-            existing_profile = self.get_profile_by_id(str(profile.id)) # Use str() just in case
-            is_new = existing_profile is None
+        # Determine if it's a new profile (ID is None or not a UUID string)
+        # The AnalysisProfile constructor should have already assigned a UUID if id was None.
+        # We rely on update_profile to raise ProfileNotFoundError if the ID doesn't exist.
+        is_new = not isinstance(profile.id, uuid.UUID)
 
-        try:
-            if is_new:
-                self.logger.info(f"Attempting to create new profile with ID: {profile.id}")
-                return self.create_profile(profile)
-            else:
-                self.logger.info(f"Attempting to update existing profile with ID: {profile.id}")
-                # Ensure updated_at is managed correctly by update_profile
-                # The current implementation of update_profile already handles this
-                return self.update_profile(profile)
-        except ProfileNotFoundError as e:
-            # This might happen in a race condition if the profile was deleted
-            # between the get_profile_by_id check and the update_profile call.
-            # Or if the initial check failed somehow. Try creating it.
-            self.logger.warning(f"Profile {profile.id} not found during update attempt, trying to create instead. Original error: {e}")
-            try:
-                 return self.create_profile(profile)
-            except Exception as create_e:
-                 # If create also fails, raise the original or a combined error
-                 self.logger.error(f"Failed to create profile {profile.id} after update attempt failed: {create_e}")
-                 raise ProfileStorageError(f"Failed to save profile {profile.id}. Update failed and subsequent create failed.") from create_e
-        # Let other exceptions (ValueError, ProfileDuplicateError, ProfileStorageError)
-        # propagate up from create_profile/update_profile
+        # The AnalysisProfile model ensures profile.id is a UUID.
+        # We pass it directly to create_profile or update_profile.
+        if is_new: # Should generally not happen if constructor is used correctly
+            self.logger.warning(f"save_profile called with a non-UUID ID: {profile.id}. Attempting create.")
+            # Ensure ID is a UUID before creating
+            if not profile.id:
+                profile.id = uuid.uuid4()
+            elif not isinstance(profile.id, uuid.UUID):
+                 # Attempt to convert if it's a string, otherwise generate new
+                 try:
+                     profile.id = uuid.UUID(str(profile.id))
+                 except ValueError:
+                     profile.id = uuid.uuid4()
+            return self.create_profile(profile) # create_profile uses profile.id
+        else:
+             # ID is present and assumed to be a valid UUID for update
+             if not isinstance(profile.id, uuid.UUID):
+                 # Defensive check if ID is somehow not a UUID
+                 raise ValueError(f"Profile ID for update must be a UUID, got: {type(profile.id)}")
+             self.logger.info(f"Attempting to update existing profile with ID: {profile.id}")
+             # Order should be provided for update, otherwise it retains existing value (if DB schema allows NULL)
+             # or causes error if DB schema requires NOT NULL and it wasn't loaded.
+             # Current update logic requires all fields to be set.
+             return self.update_profile(profile)
+        
+        # Note: The previous try/except block handling ProfileNotFoundError during update 
+        #       is removed. The update_profile now raises ProfileNotFoundError directly if needed,
+        #       and create_profile handles its own errors.
 
     def load_profile(self, identifier: str) -> Optional[AnalysisProfile]:
         """
@@ -888,6 +1018,48 @@ class ProfileRepository:
 
         self.logger.info(f"Storage health check completed with status: {results['status']}")
         return results
+
+    @handle_db_errors("record_profile_usage")
+    def record_profile_usage(self, profile_id_str: str) -> bool:
+        """
+        Records that a profile has been used. Updates its last_used_timestamp and increments usage_count.
+        Args:
+            profile_id_str: The string ID of the profile to update.
+        Returns:
+            True if successful, False otherwise.
+        Raises:
+            ProfileNotFoundError if the profile doesn't exist.
+            ProfileStorageError for other database issues.
+        """
+        self.logger.debug(f"Attempting to record usage for profile ID: {profile_id_str}")
+        
+        # Fetch the profile first to ensure it exists and to get current usage_count
+        # This also ensures we are not modifying a non-existent profile directly with SQL
+        try:
+            profile = self.get_profile_by_id(profile_id_str) # get_profile_by_id expects string
+        except ProfileNotFoundError: # Let get_profile_by_id handle the specific not found error
+            self.logger.warning(f"Cannot record usage: Profile with ID '{profile_id_str}' not found.")
+            raise # Re-raise the ProfileNotFoundError
+        
+        if profile is None: # Should be caught by above, but as a safeguard
+             self.logger.warning(f"Profile with ID '{profile_id_str}' was unexpectedly None after fetch in record_profile_usage.")
+             raise ProfileNotFoundError(f"Profile with ID '{profile_id_str}' not found.")
+
+        profile.last_used_timestamp = datetime.now(timezone.utc).isoformat()
+        profile.usage_count = (profile.usage_count or 0) + 1 # Ensure usage_count is not None
+        profile.updated_at = datetime.now(timezone.utc).isoformat() # Also update the general updated_at
+
+        # Use the existing update_profile method to save changes
+        # This re-uses validation and robust saving logic
+        try:
+            self.update_profile(profile)
+            self.logger.info(f"Successfully recorded usage for profile ID '{profile_id_str}'. New usage_count: {profile.usage_count}, Last_used: {profile.last_used_timestamp}")
+            return True
+        except (ProfileNotFoundError, ProfileValidationError, ProfileStorageError) as e: # Catch errors from update_profile
+            self.logger.error(f"Failed to update profile '{profile_id_str}' while recording usage: {e}", exc_info=True)
+            # Re-raise the specific error from update_profile if needed or a general one
+            raise ProfileStorageError(f"Failed to record usage for profile ID '{profile_id_str}'.") from e
+        return False # Should not be reached if exceptions are raised
 
 
 # --- Example Usage (Optional) ---

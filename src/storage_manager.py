@@ -4,11 +4,14 @@ import logging
 import os
 import json
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 
 # Assuming AnalysisProfile model is defined in models.py
 from .models.analysis_profile import AnalysisProfile
+
+# Import exceptions used
+from .exceptions import ProfileNotFoundError
 
 # Placeholder until models.py is created or updated
 # class AnalysisProfile:
@@ -75,55 +78,100 @@ class StorageManager:
     def save_profile(self, profile: AnalysisProfile) -> bool:
         """Saves a profile using the configured storage backend."""
         try:
-            # The specific save methods might return different things
-            # Adapt this based on the actual storage interface
-            self.logger.info(f"Attempting to save profile: {profile.id} ({profile.name}) via StorageManager")
-            result = self._storage.save_profile(profile)
-            # Assuming save_profile returns the saved profile or raises on error
-            if result:
-                self.logger.info(f"Profile {profile.id} saved successfully.")
+            self.logger.info(f"Attempting to save profile: {profile.name} (ID: {profile.id or 'New'}) via StorageManager")
+            saved_profile = self._storage.save_profile(profile)
+            if saved_profile and saved_profile.id is not None: # Check if save was successful and ID assigned
+                self.logger.info(f"Profile {saved_profile.id} ({saved_profile.name}) saved successfully.")
                 return True
             else:
-                # This case might depend on the repository implementation
-                # If save_profile returns None or False on failure without raising
-                self.logger.warning(f"Profile {profile.id} save operation returned a non-True value.")
+                self.logger.warning(f"Profile {profile.name} save operation did not return a valid profile.")
                 return False
         except Exception as e:
-            # Catch specific exceptions from storage layer if defined (e.g., ProfileStorageError)
-            self.logger.error(f"StorageManager: Error saving profile {profile.id}: {e}", exc_info=True)
+            self.logger.error(f"StorageManager: Error saving profile {profile.name}: {e}", exc_info=True)
             return False
 
-    def load_profile(self, identifier: str) -> Optional[AnalysisProfile]:
-        """Loads a profile by ID or name."""
+    def load_profile(self, profile_id_or_name: str) -> Optional[AnalysisProfile]:
+        """Loads a profile by its ID (UUID string) or name."""
         try:
-            return self._storage.load_profile(identifier)
+            # Use the repository's load_profile method
+            return self._storage.load_profile(profile_id_or_name)
         except Exception as e:
-            self.logger.error(f"StorageManager: Error loading profile '{identifier}': {e}", exc_info=True)
+            self.logger.error(f"StorageManager: Error loading profile '{profile_id_or_name}': {e}", exc_info=True)
             return None
 
     def get_all_profiles(self, **kwargs) -> List[AnalysisProfile]:
-        """Retrieves all profiles, passing through kwargs for filtering/pagination."""
+        """Retrieves all profiles, passing through kwargs for filtering/pagination/sorting."""
         try:
             return self._storage.get_all_profiles(**kwargs)
         except Exception as e:
             self.logger.error(f"StorageManager: Error getting all profiles: {e}", exc_info=True)
             return []
 
-    def delete_profile(self, profile_id: str) -> bool:
-        """Deletes a profile by ID."""
+    def delete_profile_by_id(self, profile_id_str: str) -> bool:
+        """Deletes a profile by its string UUID."""
         try:
-            return self._storage.delete_profile(profile_id)
+            # Use the repository's delete_profile method which now accepts strings
+            return self._storage.delete_profile(profile_id_str)
         except Exception as e:
-            self.logger.error(f"StorageManager: Error deleting profile {profile_id}: {e}", exc_info=True)
+            self.logger.error(f"StorageManager: Error deleting profile {profile_id_str}: {e}", exc_info=True)
             return False
 
     def profile_exists(self, identifier: str) -> bool:
-        """Checks if a profile exists by ID or name."""
+        """Checks if a profile exists by ID."""
         try:
-            return self._storage.profile_exists(identifier)
+            self._storage.get_profile_by_id(identifier)
+            return True
         except Exception as e:
-            self.logger.error(f"StorageManager: Error checking profile existence for '{identifier}': {e}", exc_info=True)
+            self.logger.error(f"StorageManager: Error checking profile existence for ID {identifier}: {e}", exc_info=True)
             return False
+
+    # --- Method for Updating Order --- 
+    def update_profile_order(self, updates: List[Tuple[int, int]]) -> bool:
+        """Updates the order of multiple profiles."""
+        if not hasattr(self._storage, 'update_profiles_order'):
+            self.logger.error(f"Storage backend {type(self._storage).__name__} does not support 'update_profiles_order'")
+            raise NotImplementedError("Order update functionality not available for the current storage backend.")
+        
+        try:
+            self.logger.info(f"StorageManager: Attempting to update order for {len(updates)} profiles.")
+            success = self._storage.update_profiles_order(updates)
+            if success:
+                 self.logger.info(f"StorageManager: Successfully updated order for profiles.")
+            else:
+                 self.logger.warning(f"StorageManager: Profile order update returned False.")
+            return success
+        except Exception as e:
+            self.logger.error(f"StorageManager: Error updating profile order: {e}", exc_info=True)
+            return False
+
+    # --- Export/Import Wrappers ---
+
+    def export_profile_to_json(self, identifier: str) -> str:
+        """Exports a specific profile to a JSON string."""
+        if not hasattr(self._storage, 'export_profile_to_json'):
+            self.logger.error(f"Storage backend {type(self._storage).__name__} does not support 'export_profile_to_json'")
+            raise NotImplementedError("Export functionality not available for the current storage backend.")
+        try:
+            return self._storage.export_profile_to_json(identifier)
+        except Exception as e:
+            # Catch specific storage exceptions if defined, otherwise log and re-raise generic
+            self.logger.error(f"StorageManager: Error exporting profile '{identifier}' to JSON: {e}", exc_info=True)
+            raise # Re-raise the original exception to be handled upstream
+
+    def import_profile_from_json(self, profile_json_string: str, handle_name_conflicts: str = 'rename') -> AnalysisProfile:
+        """Imports a profile from a JSON string."""
+        if not hasattr(self._storage, 'import_profile_from_json'):
+            self.logger.error(f"Storage backend {type(self._storage).__name__} does not support 'import_profile_from_json'")
+            raise NotImplementedError("Import functionality not available for the current storage backend.")
+        try:
+            return self._storage.import_profile_from_json(
+                profile_json_string=profile_json_string,
+                handle_name_conflicts=handle_name_conflicts
+            )
+        except Exception as e:
+            # Catch specific storage exceptions if defined, otherwise log and re-raise generic
+            self.logger.error(f"StorageManager: Error importing profile from JSON: {e}", exc_info=True)
+            raise # Re-raise the original exception
 
     def perform_health_check(self) -> Dict[str, Any]:
         """Performs a health check on the configured storage backend."""

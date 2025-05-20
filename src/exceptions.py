@@ -66,7 +66,18 @@ class ProfileNotFoundError(ProfileStorageError):
 
 class ProfileValidationError(ProfileStorageError):
     """Raised when profile data fails validation."""
-    pass
+    def __init__(self, message, validation_result=None):
+        super().__init__(message)
+        self.validation_result = validation_result
+
+    def __str__(self):
+        base_message = super().__str__()
+        if self.validation_result:
+            # Format validation results nicely if they exist
+            errors_str = "\n - ".join(self.validation_result.get('errors', []))
+            if errors_str:
+                return f"{base_message}:\n - {errors_str}"
+        return base_message
 
 class ProfileStorageConnectionError(ProfileStorageError):
     """Raised for issues connecting to or interacting with the storage backend."""

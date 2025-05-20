@@ -131,9 +131,15 @@ class AnalysisProfile:
              try:
                  id_obj = uuid.UUID(data['id'])
              except ValueError:
-                 raise ValueError("Invalid UUID format for id")
+                 # Raise a more specific error if the string is not a valid UUID
+                 raise ValueError(f"Invalid UUID format for id: '{data['id']}'")
         elif isinstance(data.get('id'), uuid.UUID):
             id_obj = data['id']
+
+        # If after processing, id_obj is still None, it means the input ID was problematic
+        # or missing (though initial check should catch missing)
+        if id_obj is None:
+            raise ValueError("Failed to determine a valid UUID for the profile ID.")
 
 
         return cls(

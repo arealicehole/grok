@@ -1,8 +1,11 @@
 import customtkinter as ctk
-from typing import Optional, Callable, List, Set, Dict # Added List, Set, Dict
-from src.profile_repository import ProfileRepository
+from typing import Optional, Callable, List, Set, Dict, TYPE_CHECKING # Added TYPE_CHECKING
 from src.models.analysis_profile import AnalysisProfile # Corrected import location
 from CTkMessagebox import CTkMessagebox # Assuming CTkMessagebox is available
+
+# Use TYPE_CHECKING to avoid circular import if StorageManager imports this module
+if TYPE_CHECKING:
+    from src.storage_manager import StorageManager
 
 # Predefined tags (can be loaded from config later)
 PREDEFINED_TAGS = [
@@ -11,10 +14,10 @@ PREDEFINED_TAGS = [
 ]
 
 class ProfileEditorWindow(ctk.CTkToplevel):
-    def __init__(self, master, repository: ProfileRepository, profile_id: Optional[str] = None, on_save_callback: Optional[Callable] = None):
+    def __init__(self, master, storage_manager: 'StorageManager', profile_id: Optional[str] = None, on_save_callback: Optional[Callable] = None):
         super().__init__(master)
 
-        self.repository = repository
+        self.storage_manager = storage_manager
         self.profile_id = profile_id
         self.on_save_callback = on_save_callback
         self.is_dirty = False
@@ -84,7 +87,8 @@ class ProfileEditorWindow(ctk.CTkToplevel):
         """Load data into the form if editing an existing profile."""
         if self.profile_id:
             try:
-                self.current_profile = self.repository.get_profile(self.profile_id)
+                # Use load_profile from storage_manager, handles ID or name
+                self.current_profile = self.storage_manager.load_profile(self.profile_id)
                 if self.current_profile:
                     self.name_entry.insert(0, self.current_profile.name)
                     self.instructions_text.insert("1.0", self.current_profile.instructions or "")
@@ -108,7 +112,6 @@ class ProfileEditorWindow(ctk.CTkToplevel):
                  CTkMessagebox(title="Error", message=f"Failed to load profile: {e}", icon="cancel")
                  self.destroy()
 
-        self.after(100, lambda: self.name_entry.focus())
         self.is_dirty = False # Reset dirty flag after loading
 
     def _bind_events(self):
@@ -142,7 +145,8 @@ class ProfileEditorWindow(ctk.CTkToplevel):
              return False, "Profile name must be 100 characters or less."
 
         try:
-            existing_profile = self.repository.get_profile_by_name(name)
+            # Use load_profile which handles name lookups
+            existing_profile = self.storage_manager.load_profile(name)
             if existing_profile:
                 current_profile_id = self.current_profile.id if self.current_profile else None
                 if not current_profile_id or existing_profile.id != current_profile_id:
@@ -167,25 +171,38 @@ class ProfileEditorWindow(ctk.CTkToplevel):
             if self.current_profile: # Editing existing profile
                 self.current_profile.name = name
                 self.current_profile.instructions = instructions
-                self.current_profile.tags = tags_to_save # Update tags
+                # self.current_profile.tags = tags_to_save # Update tags - Model doesn't support tags yet
+                # TODO: Update schema definition if editor includes it
+                # self.current_profile.schema_definition = schema_definition_from_editor 
                 profile_to_save = self.current_profile
             else: # Creating new profile
-                 profile_to_save = AnalysisProfile(name=name, instructions=instructions, tags=tags_to_save)
-                 # Assuming AnalysisProfile accepts tags in constructor
+                 # Remove 'tags=tags_to_save' as AnalysisProfile.__init__ doesn't accept it.
+                 # A default or placeholder schema_definition is needed.
+                 # TODO: Add UI element for schema_definition or use a sensible default.
+                 profile_to_save = AnalysisProfile(name=name, instructions=instructions, schema_definition={}) # Defaulting schema
+                 
+            # Use save_profile from storage_manager
+            save_successful = self.storage_manager.save_profile(profile_to_save)
 
-            saved_profile = self.repository.save_profile(profile_to_save)
-
-            if saved_profile:
+            if save_successful: # Check boolean success flag from manager
                  CTkMessagebox(title="Success", message="Profile saved successfully.", icon="check")
                  self.is_dirty = False
                  if self.on_save_callback:
-                     self.on_save_callback()
+                     # Pass the required result dictionary to the callback
+                     callback_result = {
+                         'mode': 'edit' if self.current_profile else 'create',
+                         'profile': profile_to_save # Pass the saved profile object
+                     }
+                     self.on_save_callback(callback_result)
                  self.destroy()
             else:
-                 CTkMessagebox(title="Error", message="Failed to save profile. Repository returned failure.", icon="cancel")
+                 CTkMessagebox(title="Error", message="Failed to save profile. Storage manager reported failure.", icon="cancel")
 
         except Exception as e:
-            CTkMessagebox(title="Error", message=f"An error occurred while saving: {e}", icon="cancel")
+            # Log the full traceback for debugging
+            import traceback
+            self.master.logger.error(f"Exception in _save_profile: {traceback.format_exc()}")
+            CTkMessagebox(title="Error", message=f"An unexpected error occurred while saving: {e}", icon="cancel")
 
 
     def _cancel(self):
@@ -206,29 +223,25 @@ class ProfileEditorWindow(ctk.CTkToplevel):
 # Example Usage (requires adjustments in main_app.py)
 # if __name__ == '__main__':
 #     import os
-#     from src.profile_repository import ProfileRepository # Make sure path is correct
+#     from src.storage_manager import StorageManager # Use StorageManager
 #     from src.models.analysis_profile import AnalysisProfile # Corrected import path
 #
 #     # Example setup
 #     app = ctk.CTk()
 #     app.geometry("200x100")
 #
-#     # Initialize repository (adjust path as needed)
-#     # Ensure the directory exists
-#     config_dir = os.path.expanduser("~/.config/analysis_profiles")
-#     os.makedirs(config_dir, exist_ok=True)
-#     db_path = os.path.join(config_dir, "profiles.db")
-#     repo = ProfileRepository(db_path)
+#     # Initialize storage manager
+#     manager = StorageManager()
 #
 #     def open_create_editor():
-#         editor = ProfileEditorWindow(app, repo, on_save_callback=lambda: print("Save callback triggered!"))
+#         editor = ProfileEditorWindow(app, manager, on_save_callback=lambda: print("Save callback triggered!"))
 #         # No need for editor.mainloop() when using grab_set()
 #
 #     def open_edit_editor(profile_id_to_edit):
 #          if not profile_id_to_edit:
 #               print("No profile ID provided for editing.")
 #               return
-#          editor = ProfileEditorWindow(app, repo, profile_id=profile_id_to_edit, on_save_callback=lambda: print("Save callback triggered!"))
+#          editor = ProfileEditorWindow(app, manager, profile_id=profile_id_to_edit, on_save_callback=lambda: print("Save callback triggered!"))
 #
 #     create_button = ctk.CTkButton(app, text="Create Profile", command=open_create_editor)
 #     create_button.pack(pady=10)
