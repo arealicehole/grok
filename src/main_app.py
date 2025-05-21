@@ -7,7 +7,7 @@ from functools import partial # Needed for delete button command
 import threading
 import queue
 import logging
-from typing import Optional, Dict, List, Any # Added List, Any
+from typing import Optional, Dict, List, Any, Set # Added List, Any, Set
 import datetime # Added for time formatting
 
 # Use relative imports since main_app is inside the src package
@@ -22,7 +22,7 @@ if __name__ == "__main__" and __package__ is None:
     from src.models.analysis_profile import AnalysisProfile
     from src.components.profile_editor import ProfileEditorWindow
     from src.storage_manager import StorageManager
-    from src.components.output_display import OutputDisplayFrame
+    from src.components.output_container import OutputDisplayFrame
     from src.profile_utils import (
         clone_profile, # Still used for duplication logic
         export_profile_utility, # New utility for export UI flow
@@ -34,7 +34,7 @@ else:
     from .models.analysis_profile import AnalysisProfile
     from .components.profile_editor import ProfileEditorWindow
     from .storage_manager import StorageManager
-    from .components.output_display import OutputDisplayFrame
+    from .components.output_container import OutputDisplayFrame
     from .profile_utils import (
         clone_profile, # Still used for duplication logic
         export_profile_utility, # New utility for export UI flow
@@ -105,6 +105,18 @@ class GrokApp(ctk.CTk):
         self.selected_profile_frames: Dict[str, ctk.CTkFrame] = {} # Stores profile_id -> frame
         self.selected_profile_color = ("gray70", "gray30") # Example highlight color (light, dark)
 
+        # --- New variables for multi-profile checkbox selection ---
+        self.selected_profile_ids: Set[str] = set() # Stores IDs of all checked profiles
+        self.profile_checkboxes: Dict[str, ctk.CTkCheckBox] = {} # Maps profile_id to CTkCheckBox widget
+        self.profile_checkbox_vars: Dict[str, ctk.IntVar] = {} # Maps profile_id to CTkIntVar for checkbox state
+        # --- End new variables ---
+
+        # --- Per-Profile Analysis State ---
+        self.analysis_results: Dict[str, Any] = {}  # Stores successful analysis data, keyed by profile_id
+        self.analysis_status: Dict[str, str] = {}   # Stores status ('idle', 'loading', 'success', 'error'), keyed by profile_id
+        self.analysis_errors: Dict[str, Any] = {}   # Stores error information, keyed by profile_id
+        # --- End Per-Profile Analysis State ---
+
         self.edit_profile_button = None # Placeholder for the edit button widget
         self.delete_profile_button = None # Placeholder for delete
         self.duplicate_profile_button = None # Placeholder for duplicate
@@ -162,6 +174,8 @@ class GrokApp(ctk.CTk):
         self.profile_filter_sort_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
         self.profile_filter_sort_frame.grid_columnconfigure(0, weight=1) # Filter entry
         self.profile_filter_sort_frame.grid_columnconfigure(1, weight=0) # Sort dropdown
+        self.profile_filter_sort_frame.grid_columnconfigure(2, weight=0) # Select All button
+        self.profile_filter_sort_frame.grid_columnconfigure(3, weight=0) # Deselect All button
 
         self.profile_filter_entry = ctk.CTkEntry(self.profile_filter_sort_frame, placeholder_text="Filter by name...")
         self.profile_filter_entry.grid(row=0, column=0, padx=(0, 5), pady=5, sticky="ew")
@@ -176,6 +190,12 @@ class GrokApp(ctk.CTk):
             command=lambda choice: self._load_profiles()
         )
         self.profile_sort_menu.grid(row=0, column=1, padx=(5, 0), pady=5, sticky="e")
+
+        self.select_all_button = ctk.CTkButton(self.profile_filter_sort_frame, text="Select All", command=self._select_all_profiles, width=80)
+        self.select_all_button.grid(row=0, column=2, padx=(5,0), pady=5, sticky="e")
+
+        self.deselect_all_button = ctk.CTkButton(self.profile_filter_sort_frame, text="Deselect All", command=self._deselect_all_profiles, width=90)
+        self.deselect_all_button.grid(row=0, column=3, padx=(5,0), pady=5, sticky="e")
 
         # Scrollable frame for profile list
         self.profile_scrollable_frame = ctk.CTkScrollableFrame(self.profile_frame)
@@ -333,9 +353,13 @@ class GrokApp(ctk.CTk):
         # Clear existing profile widgets
         for widget in self.profile_scrollable_frame.winfo_children():
             widget.destroy()
-        self.profile_buttons = {} # Clear stored radio buttons
-        self.profile_row_frames = [] # Clear stored row frames
-        self.selected_profile_frames.clear()
+        # self.profile_buttons = {} # Clear stored radio buttons - Replaced by checkboxes
+        self.profile_row_frames = [] # Clear stored row frames - May no longer be needed or used differently
+        self.selected_profile_frames.clear() # May no longer be needed or used differently
+
+        # Clear checkbox specific dictionaries
+        self.profile_checkboxes.clear()
+        self.profile_checkbox_vars.clear()
 
         try:
             # Get filter text
@@ -384,27 +408,42 @@ class GrokApp(ctk.CTk):
             empty_label.pack(pady=20)
             # Ensure edit/delete buttons are disabled if list is empty
             self._update_management_button_states() 
+            self._check_process_button_state() # Also check process button
             return
 
-        selected_profile_id_str = self.profile_radio_var.get()
+        # selected_profile_id_str = self.profile_radio_var.get() # Old single selection tracking
         
         # Re-populate with (potentially filtered and sorted) profiles
         for profile in self.profiles_list: # Iterate over the updated self.profiles_list
             profile_id_str = str(profile.id) # Ensure ID is string for var and dict keys
 
             # --- Create a frame for each profile row ---
+            # This frame will now contain a checkbox and then the details_frame
             row_frame = ctk.CTkFrame(self.profile_scrollable_frame, fg_color="transparent")
-            row_frame.pack(fill="x", pady=(2,0), padx=2) # Pack the row frame
-            # Configure row_frame to have two columns: details (weight 1) and arrows container (weight 0)
-            row_frame.grid_columnconfigure(0, weight=1) # Main content (details_frame)
-            row_frame.grid_columnconfigure(1, weight=0) # Column for the arrow_buttons_frame
-            
-            self.profile_row_frames.append(row_frame) # Store for potential highlighting later
-            self.selected_profile_frames[profile_id_str] = row_frame
+            row_frame.pack(fill="x", pady=(2,0), padx=2)
+            row_frame.grid_columnconfigure(0, weight=0) # Checkbox column (fixed width)
+            row_frame.grid_columnconfigure(1, weight=1) # Main content (details_frame)
+            row_frame.grid_columnconfigure(2, weight=0) # Column for the arrow_buttons_frame
 
-            # --- Profile Details Frame (within row_frame) ---
+            # --- Checkbox for selection ---
+            checkbox_var = ctk.IntVar()
+            if profile_id_str in self.selected_profile_ids:
+                checkbox_var.set(1)
+            else:
+                checkbox_var.set(0)
+            
+            checkbox = ctk.CTkCheckBox(row_frame, 
+                                         text="", # No text for checkbox itself, name is in details_frame
+                                         variable=checkbox_var, 
+                                         command=lambda p_id=profile_id_str, c_var=checkbox_var: self._handle_profile_checkbox_toggle(p_id, c_var),
+                                         width=20) # Small width for checkbox only
+            checkbox.grid(row=0, column=0, padx=(5,0), pady=(5,5), sticky="n") # Align to top of cell
+            self.profile_checkboxes[profile_id_str] = checkbox
+            self.profile_checkbox_vars[profile_id_str] = checkbox_var
+
+            # --- Profile Details Frame (within row_frame, next to checkbox) ---
             details_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
-            details_frame.grid(row=0, column=0, sticky="ew", padx=(5,0))
+            details_frame.grid(row=0, column=1, sticky="ew", padx=(5,0))
             details_frame.grid_columnconfigure(0, weight=1)
 
             # Profile Name (Bold)
@@ -424,17 +463,15 @@ class GrokApp(ctk.CTk):
             usage_info_label = ctk.CTkLabel(details_frame, text=f"{last_used_str}  •  {usage_str}", font=ctk.CTkFont(size=9), text_color=("gray60", "gray40"))
             usage_info_label.grid(row=2, column=0, sticky="w", pady=(0,3))
 
-            # --- Clickable area for selection ---
-            # Bind click to the details_frame for selection
-            # Using partial to pass profile_id and the specific row_frame to the handler
-            clickable_elements = [row_frame, details_frame, name_label, preview_label, usage_info_label]
-            for elem in clickable_elements:
-                 elem.bind("<Button-1>", partial(self._handle_profile_selection, profile_id_str, row_frame))
+            # --- Clickable area for selection (REMOVED - now handled by checkbox) ---
+            # clickable_elements = [row_frame, details_frame, name_label, preview_label, usage_info_label]
+            # for elem in clickable_elements:
+            #      elem.bind("<Button-1>", partial(self._handle_profile_selection, profile_id_str, row_frame))
             
             # --- Create a frame for arrow buttons, to group them vertically on the side ---
             arrow_buttons_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
-            # Place this frame in column 1 of the row_frame, aligned to the right.
-            arrow_buttons_frame.grid(row=0, column=1, sticky="e", padx=(2, 0))
+            # Place this frame in column 2 of the row_frame, aligned to the right.
+            arrow_buttons_frame.grid(row=0, column=2, sticky="e", padx=(2, 0))
 
             # Up arrow button within the arrow_buttons_frame
             up_arrow_button = ctk.CTkButton(arrow_buttons_frame, text="↑", width=25, command=partial(self._move_profile_up, profile_id_str))
@@ -448,45 +485,77 @@ class GrokApp(ctk.CTk):
             separator = ctk.CTkFrame(self.profile_scrollable_frame, height=1, fg_color=("gray80", "gray20"))
             separator.pack(fill="x", padx=5, pady=(0,3))
 
-        # Re-apply selection highlight if a profile was previously selected
-        if selected_profile_id_str and selected_profile_id_str in self.selected_profile_frames:
-            self._highlight_selected_profile(selected_profile_id_str)
-        else: # If previous selection is not in the list (e.g. filtered out), clear selection
-            self.profile_radio_var.set("") 
-            self._unhighlight_all_profiles()
-
         self._update_management_button_states() # Update button states based on new list & selection
+        self._check_process_button_state() # Also check process button state
 
     def _highlight_selected_profile(self, profile_id_to_select: str):
         """Highlights the specified profile row and unhighlights others."""
-        self._unhighlight_all_profiles() # Clear previous highlights
+        # This method might be removed or repurposed if highlighting is not used with checkboxes
+        # For now, let's assume it's not directly used by checkbox selection
+        self._unhighlight_all_profiles() 
         
-        if profile_id_to_select in self.selected_profile_frames:
+        if profile_id_to_select in self.selected_profile_frames: # self.selected_profile_frames might be deprecated
             frame_to_highlight = self.selected_profile_frames[profile_id_to_select]
-            frame_to_highlight.configure(fg_color=self.selected_profile_color)
-            # Also ensure child frames/labels get a consistent background or are transparent
-            for child in frame_to_highlight.winfo_children():
-                if isinstance(child, ctk.CTkFrame): # If it's the details_frame
-                    child.configure(fg_color=self.selected_profile_color)
+            # frame_to_highlight.configure(fg_color=self.selected_profile_color) # No longer changing bg color based on this
+            # for child in frame_to_highlight.winfo_children():
+            #     if isinstance(child, ctk.CTkFrame):
+            #         child.configure(fg_color=self.selected_profile_color)
+            pass # Highlighting logic removed/commented for now
 
     def _unhighlight_all_profiles(self):
         """Removes highlight from all profile rows."""
-        for frame_id, frame in self.selected_profile_frames.items():
-            frame.configure(fg_color="transparent") # Reset to default/transparent
-            for child in frame.winfo_children():
-                 if isinstance(child, ctk.CTkFrame): # If it's the details_frame
-                    child.configure(fg_color="transparent")
+        # This method might be removed or repurposed
+        # for frame_id, frame in self.selected_profile_frames.items(): # self.selected_profile_frames might be deprecated
+            # frame.configure(fg_color="transparent") 
+            # for child in frame.winfo_children():
+            #      if isinstance(child, ctk.CTkFrame):
+            #         child.configure(fg_color="transparent")
+        pass # Highlighting logic removed/commented for now
 
     def _handle_profile_selection(self, profile_id: str, selected_frame: ctk.CTkFrame, event=None):
-        """Handles profile selection when a row is clicked."""
-        self.logger.debug(f"Profile selection changed to: {profile_id}")
-        self.profile_radio_var.set(profile_id) # Update the variable that tracks selection
+        """Handles profile selection when a row is clicked. (Legacy - might be removed or adapted if single-click focus is needed)"""
+        self.logger.debug(f"Legacy _handle_profile_selection called for: {profile_id}. Checkbox selection is primary.")
+        # self.profile_radio_var.set(profile_id) # This sets the single-select var. Decide if still needed for Edit/Delete.
         
-        self._highlight_selected_profile(profile_id)
+        # self._highlight_selected_profile(profile_id) # Highlighting removed from here
 
         # Update button states based on the new selection
+        # self._update_management_button_states() # This should be called by checkbox toggle now
+        # self._check_process_button_state() # This should be called by checkbox toggle now
+        pass # Most logic moved to _handle_profile_checkbox_toggle
+
+    def _handle_profile_checkbox_toggle(self, profile_id: str, checkbox_var: ctk.IntVar):
+        """Handles the toggling of a profile selection checkbox."""
+        if checkbox_var.get() == 1: # If checkbox is checked
+            self.selected_profile_ids.add(profile_id)
+        else:
+            if profile_id in self.selected_profile_ids:
+                self.selected_profile_ids.remove(profile_id)
+        
+        self._check_process_button_state()
+        self._update_management_button_states() # Update based on new selection
+
+    def _select_all_profiles(self):
+        """Selects all profiles."""
+        for profile_id, checkbox in self.profile_checkboxes.items():
+            checkbox_var = self.profile_checkbox_vars.get(profile_id)
+            if checkbox_var:
+                checkbox_var.set(1) # Set underlying variable
+                checkbox.select() # Visually select
+            self.selected_profile_ids.add(profile_id)
+        self._check_process_button_state()
         self._update_management_button_states()
-        self._check_process_button_state() # Check if process button should be enabled
+
+    def _deselect_all_profiles(self):
+        """Deselects all profiles."""
+        for profile_id, checkbox in self.profile_checkboxes.items():
+            checkbox_var = self.profile_checkbox_vars.get(profile_id)
+            if checkbox_var:
+                checkbox_var.set(0) # Set underlying variable
+                checkbox.deselect() # Visually deselect
+        self.selected_profile_ids.clear()
+        self._check_process_button_state()
+        self._update_management_button_states()
 
     def _move_profile_up(self, profile_id: str):
         """Moves the selected profile one position up in the order."""
@@ -689,10 +758,15 @@ class GrokApp(ctk.CTk):
 
     def _update_management_button_states(self):
         """Enables or disables Edit, Delete, Duplicate, Export buttons based on selection."""
-        selected_id_str = self.profile_radio_var.get()
-        self.logger.debug(f"_update_management_button_states: Called with profile_radio_var = '{selected_id_str}'")
-        profile_selected = bool(selected_id_str)
-        new_state = "normal" if profile_selected else "disabled"
+        # selected_id_str = self.profile_radio_var.get() # Old single selection var
+        # self.logger.debug(f"_update_management_button_states: Called with profile_radio_var = '{selected_id_str}'")
+        # profile_selected = bool(selected_id_str) # Old single selection check
+
+        num_selected = len(self.selected_profile_ids)
+        self.logger.debug(f"_update_management_button_states: Called with {num_selected} profiles selected.")
+
+        # Management buttons should only be active if exactly one profile is selected
+        new_state = "normal" if num_selected == 1 else "disabled"
         
         if self.edit_profile_button: self.edit_profile_button.configure(state=new_state)
         if self.delete_profile_button: self.delete_profile_button.configure(state=new_state)
@@ -779,13 +853,12 @@ class GrokApp(ctk.CTk):
                 try:
                     # Use the ID directly from the saved object
                     new_profile_id_str = str(saved_profile.id)
-                    self.profile_radio_var.set(new_profile_id_str)
-                    self.logger.info(f"Selecting newly created profile ID: {new_profile_id_str}")
-                    self._update_management_button_states() # Update highlights/states
+                    # Call the corrected selection method
+                    self._select_newly_created_profile(new_profile_id_str)
+                    # self.logger.info(f"Selected newly created profile ID: {new_profile_id_str}") # Log is in _select_newly_created_profile
+                    # _update_management_button_states is called by _select_newly_created_profile
                 except AttributeError:
                      self.logger.error(f"Saved profile object lacks an ID attribute after creation.")
-                except Exception as e:
-                     self.logger.error(f"Error selecting newly created profile '{saved_profile.name}': {e}")
 
             elif mode == 'edit':
                 # If editing was successful, reload and re-select
@@ -1003,118 +1076,304 @@ class GrokApp(ctk.CTk):
         """Handles transcript changes after a debounce period."""
         # This method would be called by a debouncer
         self._check_process_button_state()
-        # Any other logic that needs to run on transcript change
 
-    # --- Processing Controls and Status Methods ---
     def _check_process_button_state(self, *args): # Changed event=None to *args
-        """Enable or disable the Process button based on transcript and profile selection."""
-        transcript_text = self.transcript_input_component.textbox.get("1.0", "end-1c").strip()
-        # Check if placeholder is active (using component's method if available, otherwise direct check)
-        is_placeholder = self.transcript_input_component.is_placeholder_active() if hasattr(self.transcript_input_component, 'is_placeholder_active') else (transcript_text == "Paste your transcript here...")
-        
-        has_text = transcript_text and not is_placeholder
-        has_profile = bool(self.profile_radio_var.get())
+        """Enables or disables the Process Transcript button based on transcript and profile selection."""
+        transcript_present = self.transcript_input_component.textbox.get("0.0", "end-1c").strip()
+        # profile_selected = self.profile_radio_var.get() # Old single selection check
+        profiles_selected_count = len(self.selected_profile_ids)
 
-        if has_text and has_profile:
+        # if transcript_present and profile_selected: # Old condition
+        if transcript_present and profiles_selected_count > 0:
             self.process_button.configure(state="normal")
         else:
             self.process_button.configure(state="disabled")
 
     def start_analysis_processing(self):
-        """Start the transcript analysis process."""
-        if not self.profile_radio_var.get(): # Double check profile selection
-            self.logger.warning("start_analysis_processing called with no profile selected.")
-            CTkMessagebox(title="No Profile", message="Please select an Analysis Profile to proceed.", icon="warning")
-            return
-        if not self.transcript_input_component.textbox.get("1.0", "end-1c").strip() or \
-           (hasattr(self.transcript_input_component, 'is_placeholder_active') and self.transcript_input_component.is_placeholder_active()):
-            self.logger.warning("start_analysis_processing called with no transcript text.")
-            CTkMessagebox(title="No Transcript", message="Please enter some transcript text to process.", icon="warning")
+        """Initiates the analysis process for the selected profile(s) asynchronously."""
+        if self.is_processing:
+            self.logger.warning("Processing already in progress.")
             return
 
+        current_transcript_text = self.transcript_input_component.textbox.get("0.0", "end-1c").strip()
+        selected_ids_list = list(self.selected_profile_ids)
+
+        if not current_transcript_text:
+            self.logger.warning("Attempted to process with empty transcript.")
+            CTkMessagebox(title="Input Required", message="Please enter some transcript text to process.", icon="warning")
+            return
+        
+        if not selected_ids_list:
+            self.logger.warning("Attempted to process without a profile selected.")
+            CTkMessagebox(title="Input Required", message="Please select at least one Analysis Profile to use.", icon="warning")
+            return
+
+        self.logger.info(f"Starting asynchronous analysis for {len(selected_ids_list)} profile IDs: {selected_ids_list}")
         self.is_processing = True
-        # transcript_text = self.transcript_input_component.textbox.get("1.0", "end-1c") # Get fresh text
-        selected_profile_id = self.profile_radio_var.get()
-        
-        # Find profile name - assumes self.profiles_list is populated correctly
-        profile_name = "Selected Profile"
-        for p in self.profiles_list:
-            if str(p.id) == selected_profile_id:
-                profile_name = p.name
-                break
-        
-        self.logger.info(f"Starting analysis with profile: {profile_name} (ID: {selected_profile_id})")
+        self.current_transcript_text_for_retry = current_transcript_text
+        self.current_selected_ids_for_retry = selected_ids_list
 
-        # Update UI for processing state
-        self._update_ui_for_processing_start(profile_name)
+        # Initialize per-profile analysis states
+        for profile_id_to_init in selected_ids_list:
+            self.analysis_status[profile_id_to_init] = 'loading'
+            self.analysis_results[profile_id_to_init] = None  # Or some default empty state for results
+            self.analysis_errors[profile_id_to_init] = None
+
+        # Fetch profile names for initial UI update (can be done synchronously as it's quick)
+        initial_profile_names_for_ui = []
+        for profile_id_for_name in selected_ids_list:
+            try:
+                profile_obj = self.storage_manager.load_profile(profile_id_for_name)
+                if profile_obj:
+                    initial_profile_names_for_ui.append(profile_obj.name)
+                else:
+                    initial_profile_names_for_ui.append(f"ID: {profile_id_for_name} (Not Found)")
+            except ProfileStorageError:
+                initial_profile_names_for_ui.append(f"ID: {profile_id_for_name} (Error Loading)")
+
+        self._update_ui_for_processing_start(initial_profile_names_for_ui) # Pass all names for initial message
+
+        batch_context = {
+            "profile_ids_to_process": selected_ids_list,
+            "current_index": 0,
+            "all_results": [],
+            "processed_profile_names_success": [], # For success message
+            "failed_profiles_info": {}, # {profile_id: error_message}
+            "transcript_text": current_transcript_text,
+            "initial_ui_profile_names": initial_profile_names_for_ui # For failure context message
+        }
         
-        # TODO: Here we'll later add the actual backend processing call (Task 4)
-        # For now, simulate with a timer for UI testing
-        # Simulating some work then calling success/failure handlers
-        self.logger.debug("Simulating analysis start...")
-        # Example: self.after(2000, lambda: self._handle_analysis_success({"data": "Sample result"}, profile_name))
-        self.after(1000, lambda: self._update_progress(0.1, profile_name)) # Start progress simulation
+        # Start the asynchronous batch processing
+        self.after(10, lambda: self._process_profile_batch_step(batch_context))
 
-    def _update_ui_for_processing_start(self, profile_name):
-        self.logger.info(f"Updating UI for processing start with profile: {profile_name}")
-        self.process_button.configure(text="Processing...", state="disabled")
-        self.output_display_frame.show_loading() # Use OutputDisplayFrame's loading
-        self.status_label.configure(text=f"Processing with {profile_name}...") # Keep app status label for now
-
-    def _update_progress(self, progress_value, profile_name):
-        """Simulate progress updates (will be replaced with actual backend progress)."""
-        if not self.is_processing: # Stop if cancelled
-            self.logger.debug("_update_progress called but not processing, returning.")
+    def _process_profile_batch_step(self, context: Dict):
+        """Processes one profile in the batch and schedules the next one."""
+        if not self.is_processing:
+            self.logger.info("Batch processing step detected cancellation.")
+            # UI reset is handled by cancel_analysis_processing or _finalize_cancelled_processing
             return
-           
-        if progress_value < 1.0:
-            self.progress_bar.configure(mode="determinate") # Switch to determinate if we have progress
-            self.progress_bar.set(progress_value)
+
+        profile_ids = context["profile_ids_to_process"]
+        current_index = context["current_index"]
+        total_profiles = len(profile_ids)
+
+        if current_index >= total_profiles:
+            # All profiles processed, finalize the batch
+            self._finalize_batch_processing(context)
+            return
+
+        profile_id = profile_ids[current_index]
+        profile_to_use = None # Initialize for potential error logging
+        
+        try:
+            self.progress_bar.set(float(current_index) / total_profiles) # Update progress before processing current
+            profile_to_use = self.storage_manager.load_profile(profile_id)
             
-            remaining_seconds = int((1.0 - progress_value) * 30)  # Example: 30 sec total time for simulation
-            self.time_estimate_label.configure(text=f"~{remaining_seconds}s left")
+            if not profile_to_use:
+                self.logger.error(f"Profile ID {profile_id} not found during batch step.")
+                context["failed_profiles_info"][profile_id] = "Profile not found."
+                self.status_label.configure(text=f"Skipped: Profile ID {profile_id} not found ({current_index + 1}/{total_profiles})")
+            else:
+                self.status_label.configure(text=f"Processing: {profile_to_use.name} ({current_index + 1}/{total_profiles})...")
+                self.logger.info(f"Simulating analysis for profile: {profile_to_use.name} ({current_index + 1}/{total_profiles})")
+                
+                # --- Placeholder for actual analysis call ---
+                current_result_data = {
+                    "profile_id": profile_id,
+                    "profile_name": profile_to_use.name,
+                    "json_data": {"message": f"Dummy JSON result for {profile_to_use.name}", "transcript_length": len(context["transcript_text"])},
+                    "chat_data": [{"sender": "System", "text": f"Dummy chat result for {profile_to_use.name}"}]
+                }
+                # --- End Placeholder ---
+                context["all_results"].append(current_result_data)
+                context["processed_profile_names_success"].append(profile_to_use.name)
+
+                # Update per-profile state for success
+                self.analysis_status[profile_id] = 'success'
+                self.analysis_results[profile_id] = current_result_data # Store the full data for now
+                self.analysis_errors[profile_id] = None
+
+        except ProfileStorageError as e:
+            self.logger.error(f"Storage error loading profile {profile_id} in batch: {e}", exc_info=True)
+            context["failed_profiles_info"][profile_id] = f"Storage error: {e}"
+            self.status_label.configure(text=f"Error loading profile ID {profile_id} ({current_index + 1}/{total_profiles})")
+            # Update per-profile state for error
+            self.analysis_status[profile_id] = 'error'
+            self.analysis_errors[profile_id] = {"type": "ProfileStorageError", "message": str(e)}
+            self.analysis_results[profile_id] = None
+        except Exception as e:
+            profile_name_for_log = getattr(profile_to_use, 'name', 'N/A')
+            self.logger.error(f"Error processing profile {profile_id} ({profile_name_for_log}) in batch: {e}", exc_info=True)
+            context["failed_profiles_info"][profile_id] = f"Analysis error: {e}"
+            self.status_label.configure(text=f"Error with profile {profile_name_for_log} ({current_index + 1}/{total_profiles})")
+            # Update per-profile state for error
+            self.analysis_status[profile_id] = 'error'
+            self.analysis_errors[profile_id] = {"type": "AnalysisError", "message": str(e)}
+            self.analysis_results[profile_id] = None
+        
+        # Schedule next step
+        context["current_index"] += 1
+        self.after(10, lambda: self._process_profile_batch_step(context))
+
+    def _finalize_batch_processing(self, context: Dict):
+        """Finalizes the batch processing, called after all profiles are attempted."""
+        if not self.is_processing:
+            self.logger.info("Finalizing batch processing detected cancellation.")
+            # UI reset by cancel_analysis_processing
+            return
+
+        all_results = context["all_results"]
+        failed_profiles_info = context["failed_profiles_info"]
+        total_profiles_attempted = len(context["profile_ids_to_process"])
+        initial_ui_profile_names = context["initial_ui_profile_names"]
+        successful_profile_names = context["processed_profile_names_success"]
+
+        self.progress_bar.set(1.0) # Mark progress as complete
+
+        if failed_profiles_info:
+            error_summary = f"{len(failed_profiles_info)} of {total_profiles_attempted} profiles failed. Failures: {failed_profiles_info}"
+            self._handle_analysis_failure(
+                error_message="One or more profiles failed during batch processing.",
+                error_details={"summary": error_summary, "failed_ids_info": failed_profiles_info, "successful_results": all_results},
+                processed_info=initial_ui_profile_names # Context of what was attempted
+            )
+        elif not all_results and total_profiles_attempted > 0:
+             self._handle_analysis_failure(
+                error_message="No results generated from batch. Profiles might be missing or had errors.",
+                error_details={"summary": "No results obtained from selected profiles.", "failed_ids_info": failed_profiles_info},
+                processed_info=initial_ui_profile_names
+            )
+        else: # Success or partial success with no critical failures that stopped the batch logic
+            self._handle_analysis_success(successful_profile_names)
             
-            self.logger.debug(f"Simulating progress: {progress_value*100:.0f}%")
-            self.after(500, lambda: self._update_progress(progress_value + 0.1, profile_name)) # Simulate next step
+    def _finalize_cancelled_processing(self):
+        """Resets UI elements when processing is cancelled."""
+        self.logger.info("Finalizing UI for cancelled processing.")
+        self.output_display_frame.hide_loading_message() 
+        self.output_display_frame.clear_output() 
+        self.status_label.configure(text="Analysis cancelled by user.")
+        self.process_button.configure(text="Process Transcript", state="disabled") # Keep disabled until conditions met
+        
+        self.progress_bar.stop()
+        self.progress_bar.set(0)
+        self.progress_bar.grid_remove()
+        self.time_estimate_frame.grid_remove()
+        self.cancel_button.grid_remove()
+        
+        self._check_process_button_state() # Re-evaluate if process button should be enabled
+
+    def _update_ui_for_processing_start(self, profile_names: List[str]):
+        self.is_processing = True
+        # self.current_processing_profiles = profile_names # This was used for a single name, now batch
+        
+        num_profiles = len(profile_names)
+        if num_profiles == 1:
+            display_name_for_status = profile_names[0]
+        elif num_profiles > 1:
+            display_name_for_status = f"{num_profiles} profiles"
         else:
-            self.logger.debug("Simulated progress complete. Calling success handler.")
-            # Simulate a small delay before marking as complete
-            self.after(200, lambda: self._handle_analysis_success({"sample_result": "Analysis was successful!"}, profile_name))
+            display_name_for_status = "selected profiles"
 
-    def _handle_analysis_success(self, result_data, profile_name):
-        self.is_processing = False
-        self.logger.info(f"Analysis successful for profile {profile_name}. Result: {str(result_data)[:100]}...")
-        self.output_display_frame.set_data(result_data) # Show data in OutputDisplayFrame
-        self.status_label.configure(text=f"Analysis complete for {profile_name}")
-        self.process_button.configure(text="Process Transcript", state="normal")
-        self._check_process_button_state() # Re-evaluate button state
+        self.logger.info(f"Updating UI for processing start with {display_name_for_status}")
+        self.process_button.configure(text="Processing...", state="disabled")
+        
+        self.output_display_frame.show_loading_message(f"Preparing to process {display_name_for_status}...")
+        
+        self.status_label.configure(text=f"Starting for {display_name_for_status} (0/{num_profiles})")
+        self.progress_bar.grid()
+        self.progress_bar.set(0) # Start progress at 0
+        self.progress_bar.configure(mode="determinate") # Use determinate mode for batch
+        # self.progress_bar.start() # No longer indeterminate for batch
+        self.time_estimate_label.configure(text="Calculating...") # Can be updated per profile later
+        self.time_estimate_frame.grid()
+        self.cancel_button.grid()
 
-    def _handle_analysis_failure(self, error_message, error_type="error", is_retryable=True):
+    def _handle_analysis_success(self, processed_profile_names: List[str]):
+        """Handles UI updates and data display after successful analysis completion."""
+        logger.info(f"Handling successful analysis for profiles: {processed_profile_names}")
         self.is_processing = False
-        self.logger.error(f"Analysis failed. Error: {error_message}, Type: {error_type}, Retryable: {is_retryable}")
-        self.output_display_frame.show_error(f"{error_type.capitalize()}: {error_message}") # Show error in OutputDisplayFrame
-        self.status_label.configure(text="Analysis failed")
-        self.process_button.configure(text="Process Transcript", state="normal")
-        self._check_process_button_state() # Re-evaluate button state
+        self.status_label.configure(text=f"Successfully processed {len(processed_profile_names)} profiles.")
+        self.process_button.configure(state="normal", text="Start Analysis")
+        self.progress_bar.set(0)
+        self.progress_bar.grid_remove()
+
+        # Prepare data for OutputDisplayFrame
+        display_objects = []
+        profile_id_to_name = {p.id: p.name for p in self.profiles_list}
+
+        for profile_id in self.selected_profile_ids:
+            profile_name = profile_id_to_name.get(profile_id, "Unknown Profile")
+            status = self.analysis_status.get(profile_id, 'unknown') # Default to 'unknown' if not set
+            result_data = self.analysis_results.get(profile_id)
+            error_data = self.analysis_errors.get(profile_id)
+
+            display_objects.append({
+                "profile_id": profile_id,
+                "profile_name": profile_name,
+                "status": status,
+                "result_data": result_data, # This will be the actual analysis output for this profile
+                "error_data": error_data   # This will be any error specific to this profile's analysis
+            })
+
+        if self.output_display_frame:
+            self.output_display_frame.set_data(display_objects) # Pass the list of display objects
+            # Ensure the output frame is visible if it was hidden
+            if not self.output_display_frame.winfo_ismapped():
+                self.output_display_frame.grid()
+            self.output_display_frame.show_content() # Ensure content area is shown, not loading message
+        else:
+            logger.error("OutputDisplayFrame is not initialized.")
+
+    def _handle_analysis_failure(self, error_message, error_details=None, processed_info: Optional[List[str]] = None, is_retryable=True):
+        self.is_processing = False # Ensure this is set
+        
+        processed_info_str = f" (Context: {', '.join(processed_info)})" if processed_info else ""
+        self.logger.error(f"Analysis failed: {error_message}{processed_info_str}, Details: {error_details}")
+        
+        self.status_label.configure(text=f"Error: {error_message[:50]}...") # Truncate for status bar
+        self.progress_bar.stop()
+        self.progress_bar.configure(progress_color="red") # Indicate error on progress bar
+        self.time_estimate_frame.grid_remove()
+        self.cancel_button.grid_remove()
+
+        self.output_display_frame.hide_loading_message()
+
+        # Default error details if not provided
+        if error_details is None:
+            error_details = {"error_message": error_message}
+        elif isinstance(error_details, str): # if only a string message was passed
+            error_details = {"error_message": error_details, "details_string": error_details}
+
+        # Determine the error type for OutputDisplayFrame more intelligently
+        final_error_type = "generic" # Default to generic
+        if "status_code" in error_details: # Likely an API error
+            final_error_type = "api"
+        elif "file_source" in error_details: # Likely a parsing error
+            final_error_type = "parsing"
+        # Add more conditions if other structured error types are expected
+
+        self.output_display_frame.show_analysis_error(
+            error_type=final_error_type, 
+            details=error_details,
+            retry_command=self.retry_analysis if is_retryable else None
+        )
+        self._check_process_button_state()
 
     def cancel_analysis_processing(self):
         """Cancel the ongoing analysis process."""
-        self.logger.info("Analysis processing cancelled by user.")
+        self.logger.info("Analysis processing cancellation requested by user.")
         if not self.is_processing:
+            self.logger.info("Cancellation requested, but no processing was active.")
             return
            
-        # TODO: Here we'll later add code to signal the backend to stop processing (Task 4)
+        self.is_processing = False # Crucial: set flag to stop asynchronous steps
         
-        self.is_processing = False # Crucial to stop simulated progress loops
-        self.output_display_frame.hide_loading() # Hide loading in OutputDisplayFrame
-        self.output_display_frame.set_data(None) # Clear any partial data shown
-        self.status_label.configure(text="Analysis cancelled")
-        self.process_button.configure(text="Process Transcript", state="normal")
-        self._check_process_button_state()
+        # Call the new method to reset UI specifically for cancellation
+        self._finalize_cancelled_processing()
 
     def retry_analysis(self):
         self.logger.info("Retrying analysis...")
-        self.output_display_frame.show_loading() # Reset output display to loading
+        self.output_display_frame.show_loading_message("Retrying analysis...") # Reset output display to loading
         self.start_analysis_processing()
 
     def _clear_error_message(self): # This might be deprecated if OutputDisplayFrame handles its own errors
@@ -1138,8 +1397,94 @@ class GrokApp(ctk.CTk):
         self.progress_bar.set(0)
         self.cancel_button.grid_remove()
         self.time_estimate_frame.grid_remove()
-        self.error_display_frame.grid_remove()
+        self.error_display_frame.grid_remove() # This is the main app's error frame, not output_display's
+        self.output_display_frame.clear_output() # Ensure output display is clear initially
         self._check_process_button_state() # Ensure process button is correctly set
+
+    def _select_newly_created_profile(self, profile_id: str):
+        """Selects and highlights a profile that was just created.
+        This method no longer attempts to focus on the (now closed) editor window.
+        """
+        self.logger.debug(f"Attempting to select newly created profile: {profile_id}")
+
+        # Update checkbox selection state
+        if profile_id not in self.selected_profile_ids:
+            # This logic assumes we want to primarily select the new one.
+            # If multi-select is active, user can manually adjust later.
+            # For now, let's make the new profile the primary (or sole) selection.
+            
+            # Option 1: Clear all other selections and select only the new one
+            # for cb_id, var in self.profile_checkbox_vars.items():
+            #     var.set(1 if cb_id == profile_id else 0)
+            # self.selected_profile_ids = {profile_id} if profile_id in self.profile_checkbox_vars else set()
+
+            # Option 2: Simply add to current selection if multi-select paradigm is preferred for new items
+            if profile_id in self.profile_checkbox_vars:
+                 self.profile_checkbox_vars[profile_id].set(1)
+                 self.selected_profile_ids.add(profile_id)
+            else:
+                 self.logger.warning(f"Checkbox for new profile ID {profile_id} not found.")
+        
+        # Update the legacy radio variable if it's still used for single-action buttons like Edit/Delete
+        self.profile_radio_var.set(profile_id) 
+
+        # The ProfileListFrame (profile_scrollable_frame) should have updated its internal display
+        # The _load_profiles method (called after save) rebuilds the list.
+        # We need to ensure the UI reflects the selection.
+        # The _handle_profile_checkbox_toggle method updates button states.
+        # If a visual highlight beyond the checkbox is needed, that logic would go here or be
+        # triggered by the checkbox state change. For now, checkbox itself is the indicator.
+
+        self.logger.info(f"Set selection for newly created profile ID: {profile_id}")
+        
+        self._update_management_button_states() # Update Edit/Delete/etc button states
+        self._check_process_button_state()      # Update Process button state
+
+    def _reset_profile_analysis_state(self, profile_ids_to_reset: Optional[List[str]] = None):
+        """Resets the analysis state for specified or all profiles."""
+        self.logger.debug(f"Resetting analysis state for profiles: {profile_ids_to_reset if profile_ids_to_reset else 'all'}")
+
+        ids_to_process = []
+        if profile_ids_to_reset is None:
+            # Get all profile IDs that have any state stored
+            # This ensures we only try to pop/set for existing entries if we choose to iterate over a specific dict's keys
+            # A more robust way is to collect all known profile IDs from self.profiles_list or storage if available,
+            # but for now, let's assume we only care about those with existing state.
+            # A simpler approach: iterate over a copy of keys from one of the state dicts.
+            ids_to_process = list(self.analysis_status.keys()) 
+        else:
+            ids_to_process = profile_ids_to_reset
+
+        for profile_id in ids_to_process:
+            self.analysis_status.pop(profile_id, None) # Remove or set to idle
+            self.analysis_results.pop(profile_id, None)
+            self.analysis_errors.pop(profile_id, None)
+            # Optionally, set to a default 'idle' state if preferred over popping
+            # self.analysis_status[profile_id] = 'idle'
+        
+        # Potentially trigger a UI update for the output display if it needs to clear views
+        if self.output_display_frame:
+            # Prepare data for OutputDisplayFrame - similar to _handle_analysis_success
+            display_objects = []
+            profile_id_to_name = {p.id: p.name for p in self.profiles_list}
+            
+            for profile_id in self.selected_profile_ids:
+                profile_name = profile_id_to_name.get(profile_id, "Unknown Profile")
+                status = self.analysis_status.get(profile_id, 'idle') # Default to 'idle' after reset
+                result_data = self.analysis_results.get(profile_id)
+                error_data = self.analysis_errors.get(profile_id)
+                
+                display_objects.append({
+                    "profile_id": profile_id,
+                    "profile_name": profile_name,
+                    "status": status,
+                    "result_data": result_data,
+                    "error_data": error_data
+                })
+            
+            # Update the current_data_list in OutputDisplayFrame and refresh the UI
+            self.output_display_frame.current_data_list = display_objects
+            self.output_display_frame.refresh_profile_outputs() # Updates views based on current_data_list
 
 if __name__ == "__main__":
     app = GrokApp()

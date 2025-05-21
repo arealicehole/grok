@@ -2,31 +2,22 @@ import customtkinter as ctk
 import tkinter
 import json
 import tkinter.messagebox # Added for success message
+from src.components.json_tokenizer import JsonTokenizer, Token, JsonTokenType # Added import
+from typing import Any
 
 class JsonViewFrame(ctk.CTkFrame):
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-
-        self.grid_columnconfigure(0, weight=1)
+    def __init__(self, master):
+        super().__init__(master)
         self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=0)
+        self.grid_columnconfigure(0, weight=1)
 
-        self.textbox = ctk.CTkTextbox(
-            self, 
-            wrap="none", # No wrap for structured JSON
-            state="disabled", # Initially read-only
-            font=("Courier New", 12) # Monospaced font
-        )
-        self.textbox.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.textbox = ctk.CTkTextbox(self, wrap="none", state="disabled", corner_radius=0)
+        self.textbox.grid(row=0, column=0, sticky="nsew")
+
+        self.tokenizer = JsonTokenizer()
+        self.current_json_string = ""
+        self.json_syntax_error_details: dict | None = None # Store error details like {'message': str, 'lineno': int, 'colno': int, 'pos': int}
         
-        self.copy_button = ctk.CTkButton(
-            self,
-            text="Copy JSON",
-            command=self._copy_json_to_clipboard
-        )
-        self.copy_button.grid(row=1, column=0, sticky="ew", padx=5, pady=(0,5))
-        
-        # Configure tags for syntax highlighting
         self._configure_tags()
 
     def _copy_json_to_clipboard(self):
@@ -44,160 +35,122 @@ class JsonViewFrame(ctk.CTkFrame):
             tkinter.messagebox.showwarning("Empty", "Nothing to copy.", parent=self)
 
     def _configure_tags(self):
-        """Configures tags for syntax highlighting in the CTkTextbox."""
-        # Define colors (can be themed later if needed)
+        mode = ctk.get_appearance_mode()
+        # Color definitions: (Light Mode, Dark Mode)
+        # Using more distinct dark mode colors
         colors = {
-            "key": ("#0000FF", "#ADD8E6"),      # Blue (light), LightBlue (dark)
-            "string": ("#008000", "#90EE90"),   # Green (light), LightGreen (dark)
-            "number": ("#A52A2A", "#F08080"),   # Brown (light), LightCoral (dark)
-            "boolean": ("#FF8C00", "#FFA500"),  # DarkOrange (light), Orange (dark)
-            "null": ("#808080", "#D3D3D3"),     # Gray (light), LightGray (dark)
-            "punctuation": ("#000000", "#FFFFFF") # Black (light), White (dark) - for braces, commas etc.
+            JsonTokenType.KEY.name: ("#A31515", "#9CDCFE"),          # DarkRed (Light) / LightBlue (Dark)
+            JsonTokenType.STRING.name: ("#A31515", "#CE9178"),       # DarkRed (Light) / Orange-ish (Dark)
+            JsonTokenType.NUMBER.name: ("#098658", "#B5CEA8"),       # DarkGreen (Light) / LightGreen-ish (Dark)
+            JsonTokenType.BOOLEAN.name: ("#0000FF", "#569CD6"),      # Blue (Light) / Blue (Dark)
+            JsonTokenType.NULL.name: ("#0000FF", "#569CD6"),         # Blue (Light) / Blue (Dark)
+            JsonTokenType.LBRACE.name: ("#000000", "#D4D4D4"),       # Black (Light) / LightGray (Dark)
+            JsonTokenType.RBRACE.name: ("#000000", "#D4D4D4"),       # Black (Light) / LightGray (Dark)
+            JsonTokenType.LBRACKET.name: ("#000000", "#D4D4D4"),     # Black (Light) / LightGray (Dark)
+            JsonTokenType.RBRACKET.name: ("#000000", "#D4D4D4"),     # Black (Light) / LightGray (Dark)
+            JsonTokenType.COMMA.name: ("#000000", "#D4D4D4"),        # Black (Light) / LightGray (Dark)
+            JsonTokenType.COLON.name: ("#000000", "#D4D4D4"),        # Black (Light) / LightGray (Dark)
+            JsonTokenType.ERROR.name: ("#FF0000", "#F44747"),        # Red (Light) / LightRed (Dark)
+            "JSON_SYNTAX_ERROR": ("#FF0000", "#FF0000"), # Red underline or distinct background
         }
 
-        # CTkTextbox uses a single foreground color. We might need to adjust strategy
-        # or use a regular tkinter.Text for more complex tag coloring.
-        # For now, demonstrating with a single color per tag.
-        # A more robust solution might involve checking appearance mode.
-        
-        # Simple foreground colors for now
-        self.textbox.tag_config("key", foreground=colors["key"][0]) 
-        self.textbox.tag_config("string", foreground=colors["string"][0])
-        self.textbox.tag_config("number", foreground=colors["number"][0])
-        self.textbox.tag_config("boolean", foreground=colors["boolean"][0])
-        self.textbox.tag_config("null", foreground=colors["null"][0])
-        self.textbox.tag_config("punctuation", foreground=colors["punctuation"][0])
+        for token_type_name, color_pair in colors.items():
+            chosen_color = color_pair[1] if mode == "Dark" else color_pair[0]
+            if token_type_name == "JSON_SYNTAX_ERROR":
+                 # For syntax errors, let's use a background or very distinct color
+                error_fg = "#FFFFFF" if mode == "Dark" else "#000000"
+                error_bg = chosen_color
+                self.textbox.tag_config(token_type_name, foreground=error_fg, background=error_bg)
+                # CTkTextbox might not support underline directly in tag_config in all versions/OS
+                # self.textbox.tag_config(token_type_name, underline=True, foreground=chosen_color)
+            else:
+                self.textbox.tag_config(token_type_name, foreground=chosen_color)
 
-    def set_json_data(self, data: dict):
-        """Formats, highlights, and displays the JSON data."""
-        if data is None:
-            self.textbox.configure(state="normal")
-            self.textbox.delete("1.0", "end")
-            self.textbox.insert("1.0", "No JSON data to display.")
-            self.textbox.configure(state="disabled")
-            return
-
-        try:
-            # Pretty print the JSON
-            json_string = json.dumps(data, indent=2)
-            
-            self.textbox.configure(state="normal")
-            self.textbox.delete("1.0", "end")
-            
-            # Apply highlighting (placeholder for now, will be complex)
-            # For a simple start, let's just insert the string
-            # and try to highlight keys as an example.
-            self._apply_highlighting(json_string)
-            
-            self.textbox.configure(state="disabled")
-
-        except TypeError as e:
-            self.textbox.configure(state="normal")
-            self.textbox.delete("1.0", "end")
-            self.textbox.insert("1.0", f"Error: Invalid data for JSON display.\n{e}")
-            self.textbox.configure(state="disabled")
-        except Exception as e: # Catch-all for other errors during processing
-            self.textbox.configure(state="normal")
-            self.textbox.delete("1.0", "end")
-            self.textbox.insert("1.0", f"An unexpected error occurred during JSON display:\n{e}")
-            self.textbox.configure(state="disabled")
-            
-    def _apply_highlighting(self, json_string: str):
-        """
-        Applies syntax highlighting to the JSON string.
-        This is a simplified version. A robust version would use a proper JSON tokenizer/parser
-        or a library like Pygments if compatible.
-        """
-        self.textbox.insert("1.0", json_string) # Insert the whole string first
-
-        # Very basic example: Highlight quoted keys (simplistic regex)
-        # This is not robust and just for initial demonstration.
-        # A full implementation needs to parse or tokenize the JSON.
-        import re
-        key_pattern = r'\"([^\"]+)\"\s*:' # Matches "key" :
-        
-        current_pos = "1.0"
-        while True:
-            match = self.textbox.search(key_pattern, current_pos, "end", regexp=True, nocase=True)
-            if not match:
-                break
-            
-            # The match gives the start of the whole pattern. We want to color just the key part.
-            # Let's find the start and end of the actual key within the match.
-            # match_content = self.textbox.get(match, f"{match} + {len(match.group(0))}c") # This is incorrect for CTkTextbox search.
-            # Need to parse start index and add length.
-            
-            # For simplicity, let's color the whole matched "key": part for now.
-            # A more precise approach is needed.
-            key_start_index = match
-            # To get the key itself (inside quotes), we'd need to analyze the matched string.
-            # For CTkTextbox.search, `match` is the start index as "line.char".
-            # We need to find the length of the matched string to get the end index.
-            
-            # Get the line and char from the start index
-            line, char = map(int, key_start_index.split('.'))
-            
-            # Read the line text to find the actual match content and its length for this line
-            line_text = self.textbox.get(f"{line}.0", f"{line}.end")
-            
-            # Re-run regex on this specific line_text starting from char
-            # This gets complicated quickly due to multiline matches and widget indexing.
-            
-            # --- Simplified placeholder for applying tag ---
-            # This simplified version highlights based on the *first* capture group of the regex *if* the regex matched
-            # It doesn't correctly calculate the end position of just the key within the quotes.
-            # A real solution needs a proper tokenizer.
-            
-            # Let's iterate line by line and apply regex.
-            # This is still not perfect but better than trying to search the whole widget at once with one regex for highlighting.
-            
-            # Clear and re-insert for this placeholder approach.
-            # A better way is to insert char by char or token by token.
-            
-            # Reset content and iterate to apply tags
-            self.textbox.delete("1.0", "end")
-            
-            # More robust tokenization and tagging would be needed here.
-            # For now, inserting plain and then attempting to tag parts.
-            
-            idx = 0
-            lines = json_string.split('\n')
-            for line_num, line_content in enumerate(lines):
-                # Insert the line
-                self.textbox.insert(f"{line_num + 1}.0", line_content + "\n")
-                
-                # Example: Highlight keys on this line
-                start_char = 0
-                for m in re.finditer(key_pattern, line_content):
-                    key_with_quotes = m.group(0) # This is "key":
-                    key_start = m.start(0)
-                    key_end = m.end(0)
-                    # Apply tag to "key":
-                    self.textbox.tag_add("key", f"{line_num + 1}.{key_start}", f"{line_num + 1}.{key_end}")
-
-                # Example: Highlight string values
-                string_pattern = r':\s*\"([^\"]*)\"'
-                for m in re.finditer(string_pattern, line_content):
-                    val_start = m.start(1) # Group 1 is the content within quotes
-                    val_end = m.end(1)
-                    self.textbox.tag_add("string", f"{line_num + 1}.{val_start-1}", f"{line_num + 1}.{val_end+1}") # Add quotes to tag
-
-                # Add more patterns for numbers, booleans, null similarly
-                # ... (this is becoming a mini-parser, complex)
-                
-            # Fallback to inserting the whole string if the line-by-line regex is too complex for initial step
-            # For the very first step, let's just insert the plain JSON to get the component integrated.
-            # The highlighting logic will be iterative.
-            # self.textbox.insert("1.0", json_string) # Fallback for now
-
-        # For the very first step, let's just insert the plain JSON.
-        # Highlighting will be refined in the next iteration of this subtask.
-        # The above regex is getting complex.
-
-        # Resetting to simple insert for now.
+    def display_json(self, data: Any):
+        self.textbox.configure(state="normal")
         self.textbox.delete("1.0", "end")
-        self.textbox.insert("1.0", json_string)
+        self.json_syntax_error_details = None # Reset error details
 
+        temp_json_string = ""
+        if isinstance(data, str):
+            temp_json_string = data
+            try:
+                # Validate and reformat if it's a valid JSON string
+                parsed_data = json.loads(data)
+                self.current_json_string = json.dumps(parsed_data, indent=4)
+            except json.JSONDecodeError as e:
+                # If it's a string but not valid JSON, store error and use the string as is for tokenization
+                self.json_syntax_error_details = {'message': e.msg, 'lineno': e.lineno, 'colno': e.colno, 'pos': e.pos}
+                self.current_json_string = data # Keep original erroneous string
+        elif isinstance(data, (dict, list)):
+            try:
+                self.current_json_string = json.dumps(data, indent=4)
+            except TypeError as e:
+                self.current_json_string = f"Error: Could not serialize data to JSON. {e}"
+                self.textbox.insert("1.0", self.current_json_string)
+                self.textbox.configure(state="disabled")
+                return
+        else:
+            self.current_json_string = str(data) # Fallback for other types
+
+        # Final check for syntax errors on the string that will be rendered
+        # This catches errors if input was dict/list that stringified to bad JSON,
+        # or if an already-erroneous string was passed and not caught above.
+        if not self.json_syntax_error_details: # Only check if no error found yet
+            try:
+                json.loads(self.current_json_string) # Just to validate
+            except json.JSONDecodeError as e:
+                self.json_syntax_error_details = {'message': e.msg, 'lineno': e.lineno, 'colno': e.colno, 'pos': e.pos}
+        
+        self._configure_tags() # Ensure tags are up-to-date with current theme
+
+        tokens = self.tokenizer.tokenize(self.current_json_string)
+        self._apply_highlighting(tokens, self.current_json_string)
+        
+        self.textbox.configure(state="disabled")
+        self.textbox.see("1.0") # Scroll to top
+
+    def _apply_highlighting(self, tokens: list[Token], json_string: str):
+        self.textbox.configure(state="normal") # Ensure textbox is enabled for modification
+        self.textbox.delete("1.0", "end") # Clear previous content
+        self.textbox.insert("1.0", json_string) # Insert the entire string at once
+
+        for token in tokens:
+            if token.type == JsonTokenType.WHITESPACE: # Skip applying style to whitespace tokens
+                continue
+            
+            start_index = f"1.0 + {token.start_pos}c"
+            end_index = f"1.0 + {token.end_pos}c"
+            try:
+                self.textbox.tag_add(token.type.name, start_index, end_index)
+            except tkinter.TclError as e:
+                print(f"Error applying tag {token.type.name} from {start_index} to {end_index}: {e}")
+
+        if self.json_syntax_error_details:
+            error_pos = self.json_syntax_error_details['pos']
+            # Ensure error_pos is within the bounds of the string
+            if 0 <= error_pos < len(json_string):
+                error_start_tk_idx = f"1.0 + {error_pos}c"
+                error_end_tk_idx = f"1.0 + {error_pos + 1}c" # Highlight one character
+                
+                try:
+                    self.textbox.tag_add("JSON_SYNTAX_ERROR", error_start_tk_idx, error_end_tk_idx)
+                    self.textbox.see(error_start_tk_idx) # Scroll to the error
+                except tkinter.TclError as e:
+                    # This can happen if line/col from json.loads is off due to how text widget handles lines/tabs
+                    print(f"Error applying syntax error tag at {error_start_tk_idx}: {e}")
+            elif error_pos == len(json_string) and len(json_string) > 0 : # Error at the very end (e.g. unexpected EOF)
+                error_start_tk_idx = f"1.0 + {error_pos -1}c" # Highlight the last character before EOF
+                error_end_tk_idx = f"1.0 + {error_pos}c"
+                try:
+                    self.textbox.tag_add("JSON_SYNTAX_ERROR", error_start_tk_idx, error_end_tk_idx)
+                    self.textbox.see(error_start_tk_idx) # Scroll to the error
+                except tkinter.TclError as e:
+                     print(f"Error applying syntax error tag at EOF {error_start_tk_idx}: {e}")
+            else:
+                print(f"Syntax error position {error_pos} is out of bounds for string length {len(json_string)}.")
+        
+        # self.textbox.configure(state="disabled") # Already handled by display_json
 
 if __name__ == '__main__':
     app = ctk.CTk()
@@ -221,17 +174,18 @@ if __name__ == '__main__':
     }
     test_data_empty = {}
     test_data_none = None
-    test_data_invalid_for_json_dumps = {"key": datetime.datetime.now()} # datetime is not directly serializable
+    test_data_syntax_error_str = '{"name": "Test", "version": 1.2, "active": tru "description": null}' # Error: tru instead of true
+    test_data_syntax_error_unterm_str = '{"name": "Test", "value": "unterminated string }'
 
     controls_frame = ctk.CTkFrame(app)
     controls_frame.pack(pady=10)
 
-    ctk.CTkButton(controls_frame, text="Show Valid JSON", command=lambda: json_view_frame.set_json_data(test_data_valid)).pack(side="left", padx=5)
-    ctk.CTkButton(controls_frame, text="Show Empty JSON", command=lambda: json_view_frame.set_json_data(test_data_empty)).pack(side="left", padx=5)
-    ctk.CTkButton(controls_frame, text="Show None (Clear)", command=lambda: json_view_frame.set_json_data(test_data_none)).pack(side="left", padx=5)
-    # ctk.CTkButton(controls_frame, text="Show Invalid Data", command=lambda: json_view_frame.set_json_data(test_data_invalid_for_json_dumps)).pack(side="left", padx=5)
+    ctk.CTkButton(controls_frame, text="Show Valid JSON", command=lambda: json_view_frame.display_json(test_data_valid)).pack(side="left", padx=5)
+    ctk.CTkButton(controls_frame, text="Show Empty JSON", command=lambda: json_view_frame.display_json(test_data_empty)).pack(side="left", padx=5)
+    ctk.CTkButton(controls_frame, text="Show None (Clear)", command=lambda: json_view_frame.display_json(test_data_none)).pack(side="left", padx=5)
+    ctk.CTkButton(controls_frame, text="Syntax Error (tru)", command=lambda: json_view_frame.display_json(test_data_syntax_error_str)).pack(side="left", padx=5)
+    ctk.CTkButton(controls_frame, text="Syntax Error (Unterm Str)", command=lambda: json_view_frame.display_json(test_data_syntax_error_unterm_str)).pack(side="left", padx=5)
 
-
-    json_view_frame.set_json_data(test_data_valid) # Initial display
+    json_view_frame.display_json(test_data_valid) # Initial display
 
     app.mainloop() 

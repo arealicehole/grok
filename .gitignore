@@ -170,3 +170,8 @@ scripts/task-complexity-report.json
 scripts/embeddings.json 
 
 mcp.json
+
+# Added by Claude Task Master
+# Task files
+tasks.json
+tasks/ 
