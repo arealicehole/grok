@@ -10,12 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.jubal import JubalEnvelope, JubalResponse
 from app.services.registry import ServiceRegistry
-from app.services.processor import ProfileProcessor
+from app.services.intelligence import IntelligenceEngine
 from app.config import settings
 
 # Global service instances
 service_registry = ServiceRegistry()
-profile_processor = ProfileProcessor()
+intelligence_engine = IntelligenceEngine()
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("Shutting down Grok Intelligence Engine...")
+    await intelligence_engine.close()
     await service_registry.disconnect()
 
 
@@ -113,7 +114,7 @@ async def process_transcript(envelope: JubalEnvelope):
         overrides = envelope.metadata.get("overrides", {})
 
         # Process transcript
-        result = await profile_processor.process_transcript(
+        result = await intelligence_engine.process_transcript(
             transcript=transcript,
             profile_id=profile_id,
             overrides=overrides
@@ -151,20 +152,25 @@ async def process_transcript(envelope: JubalEnvelope):
 @app.get("/profiles")
 async def list_profiles():
     """List available processing profiles."""
-    return await profile_processor.get_available_profiles()
+    return await intelligence_engine.get_available_profiles()
 
 
 @app.get("/profiles/{profile_id}")
 async def get_profile_details(profile_id: str):
     """Get details for a specific profile."""
     try:
-        return await profile_processor.get_profile_details(profile_id)
+        return await intelligence_engine.get_profile_details(profile_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
 
+
+@app.get("/providers/status")
+async def get_provider_status():
+    """Get status of all LLM providers."""
+    return await intelligence_engine.get_provider_status()
 
 @app.get("/services")
 async def list_services():

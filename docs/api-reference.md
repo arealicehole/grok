@@ -109,6 +109,46 @@ Lists all services registered in the Jubal service registry.
 - `200 OK`: Services listed successfully
 - `503 Service Unavailable`: Service registry unavailable
 
+---
+
+### GET /providers/status
+
+Returns the health status and availability of all configured LLM providers.
+
+**Response:**
+```json
+{
+  "timestamp": "2025-09-15T22:41:55.057669+00:00",
+  "providers": {
+    "ollama": {
+      "status": "healthy",
+      "available": true,
+      "base_url": "http://host.docker.internal:11434",
+      "models_count": 3,
+      "last_check": "2025-09-15T22:41:55.057669+00:00",
+      "response_time_ms": 45
+    },
+    "openrouter": {
+      "status": "healthy", 
+      "available": true,
+      "base_url": "https://openrouter.ai/api/v1",
+      "models_count": 10,
+      "last_check": "2025-09-15T22:41:55.057669+00:00",
+      "response_time_ms": 120,
+      "has_api_key": true
+    }
+  },
+  "summary": {
+    "total_providers": 2,
+    "available_providers": 2,
+    "healthy_providers": 2
+  }
+}
+```
+
+**Status Codes:**
+- `200 OK`: Provider status returned successfully
+
 ## Profile Management Endpoints
 
 ### GET /profiles
@@ -306,6 +346,18 @@ The processing endpoint supports global overrides to control model selection and
   }
 }
 ```
+
+**Available Providers:**
+- `local`: Ollama provider (default model: `llama3.1:8b`)
+- `openrouter`: OpenRouter cloud provider (default model: `openai/gpt-4o-mini`)
+
+**Popular OpenRouter Models:**
+- `openai/gpt-4o`: GPT-4 Optimized (128k context)
+- `openai/gpt-4o-mini`: GPT-4 Mini (128k context, cost-effective)
+- `anthropic/claude-3.5-sonnet`: Claude 3.5 Sonnet (200k context)
+- `google/gemini-pro-1.5`: Gemini Pro 1.5 (2M context)
+- `meta-llama/llama-3.1-8b-instruct`: Llama 3.1 8B (128k context)
+- `meta-llama/llama-3.1-70b-instruct`: Llama 3.1 70B (128k context)
 
 ### Parameter Overrides
 ```json
@@ -554,6 +606,15 @@ Future versions will support webhook notifications for long-running processing j
 
 ## Changelog
 
+### v1.1.0 (2025-09-15) - Phase 3.1 Complete
+- ✅ **LLM Provider Integration**: Full Ollama and OpenRouter support
+- ✅ **Provider Abstraction**: Base classes with intelligent fallback strategies
+- ✅ **Model Selection Engine**: Smart provider selection with global overrides
+- ✅ **New Endpoint**: `/providers/status` for monitoring LLM provider health
+- ✅ **Enhanced Processing**: Real model completions replace placeholder responses
+- ✅ **Configuration**: OpenRouter API key and app attribution support
+- ✅ **Testing**: Comprehensive unit test coverage for all providers
+
 ### v1.0.0 (2025-09-15)
 - Initial API release
 - Basic processing endpoints
@@ -563,7 +624,6 @@ Future versions will support webhook notifications for long-running processing j
 - Placeholder processing implementation
 
 ### Future Versions
-- v1.1.0: LLM provider integration (Ollama, OpenRouter)
-- v1.2.0: Real multi-step profile processing
+- v1.2.0: Real multi-step profile processing engine
 - v1.3.0: Custom profile creation API
 - v2.0.0: Authentication and rate limiting

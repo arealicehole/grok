@@ -85,6 +85,9 @@ test_endpoint_json "GET" "/capabilities" "Service capabilities"
 # Services (may be empty but should return valid JSON)
 test_endpoint_json "GET" "/services" "Registered services"
 
+# Provider status
+test_endpoint_json "GET" "/providers/status" "LLM provider status"
+
 echo -e "${YELLOW}📋 Profile Management Endpoints${NC}"
 
 # List profiles

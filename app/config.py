@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     ollama_url: str = Field(default="http://host.docker.internal:11434", env="GROK_OLLAMA_URL")
     openrouter_api_key: Optional[str] = Field(default=None, env="GROK_OPENROUTER_API_KEY")
     openrouter_url: str = Field(default="https://openrouter.ai/api/v1", env="GROK_OPENROUTER_URL")
+    openrouter_app_name: str = Field(default="grok-intelligence-engine", env="GROK_OPENROUTER_APP_NAME")
+    openrouter_app_url: Optional[str] = Field(default=None, env="GROK_OPENROUTER_APP_URL")
     
     # Default Models
     default_model_provider: str = Field(default="local", env="GROK_DEFAULT_MODEL_PROVIDER")
