@@ -1,0 +1,22 @@
+services:
+  grok-adapter:
+    build: .
+    container_name: jubal-grok
+    ports:
+      - "8002:8002"
+    environment:
+      - GROK_REDIS_URL=redis://jubal-redis:6379/0
+      - GROK_OLLAMA_URL=http://host.docker.internal:11434
+      - GROK_OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GROK_DEBUG=true
+    volumes:
+      - ./profiles:/app/profiles
+      - ./logs:/app/logs
+    networks:
+      - jubal-network
+    restart: unless-stopped
+
+networks:
+  jubal-network:
+    name: jubal-network
+    external: true
