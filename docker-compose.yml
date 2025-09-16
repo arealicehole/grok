@@ -6,7 +6,7 @@ services:
       - "8002:8002"
     environment:
       - GROK_REDIS_URL=redis://jubal-redis:6379/0
-      - GROK_OLLAMA_URL=http://host.docker.internal:11434
+      - GROK_OLLAMA_URL=http://10.14.0.2:11434
       - GROK_OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - GROK_DEBUG=true
     volumes:
